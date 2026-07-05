@@ -52,18 +52,27 @@ export function LoginForm({
       }
 
       const authPayload = payload?.data ?? payload
+      const user = authPayload?.user ?? null
+      const role = String(user?.role ?? "").toLowerCase()
+
       if (typeof window !== "undefined") {
         window.localStorage.setItem(
           "citizenAuth",
           JSON.stringify({
-            user: authPayload?.user ?? null,
+            user,
             accessToken: authPayload?.accessToken ?? null,
           }),
         )
       }
 
       setSuccess(payload?.message ?? "Login successful")
-      router.push("/citizen")
+      if (role === "admin") {
+        router.push("/admin")
+      } else if (role === "worker") {
+        router.push("/worker")
+      } else {
+        router.push("/citizen")
+      }
       router.refresh()
     } catch (submitError) {
       setError(

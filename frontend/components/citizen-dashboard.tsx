@@ -3,6 +3,7 @@
 import { useEffect, useMemo, useState } from "react"
 import { useRouter } from "next/navigation"
 
+import { backendUrl } from "@/lib/backend"
 import { Button } from "@/components/ui/button"
 import {
   Card,
@@ -30,8 +31,10 @@ type Complaint = {
   contact: string
   location: string
   description: string
-  image: string
-  imageName: string
+  complaintType?: string
+  image?: string
+  imagePath?: string
+  imageName?: string
   status: "Pending" | "Under Review" | "Approved" | "Rejected" | "Resolved"
   creditsAwarded: number
   submittedAt: string
@@ -61,6 +64,7 @@ type FormState = {
   description: string
   image: string
   imageName: string
+  imageFile: File | null
 }
 
 const DEFAULT_CREDITS = 250
@@ -170,6 +174,7 @@ const initialForm: FormState = {
   description: "",
   image: "",
   imageName: "",
+  imageFile: null,
 }
 
 export function CitizenDashboard() {
@@ -193,6 +198,11 @@ export function CitizenDashboard() {
     if (storedAuth) {
       const parsedAuth = JSON.parse(storedAuth) as { user?: AuthUser }
       const authUser = parsedAuth.user ?? null
+
+      if (authUser?.role && authUser.role.toLowerCase() === "admin") {
+        window.location.replace("/admin")
+        return
+      }
 
       if (authUser?.role && authUser.role.toLowerCase() !== "citizen") {
         window.localStorage.removeItem(STORAGE_AUTH_KEY)
@@ -324,7 +334,7 @@ export function CitizenDashboard() {
     const reader = new FileReader()
     reader.onload = () => {
       const result = reader.result as string
-      setForm((prev) => ({ ...prev, image: result, imageName: file.name }))
+      setForm((prev) => ({ ...prev, image: result, imageName: file.name, imageFile: file }))
       setFormErrors((prev) => ({ ...prev, image: "" }))
     }
     reader.readAsDataURL(file)
@@ -349,7 +359,7 @@ export function CitizenDashboard() {
     }
     if (!trimmedLocation) errors.location = "Location is required."
     if (!trimmedDescription) errors.description = "Complaint description is required."
-    if (!form.image) errors.image = "Upload an image before submitting."
+    if (!form.imageFile) errors.image = "Upload an image before submitting."
 
     const currentUserId = user?._id ?? user?.id ?? ""
     const duplicateComplaint = complaints.some((complaint) => {
@@ -375,24 +385,63 @@ export function CitizenDashboard() {
 
     setIsSubmittingComplaint(true)
 
-    const newComplaint: Complaint = {
-      id: `complaint-${Date.now()}`,
-      userId: user?._id ?? user?.id ?? "unknown",
-      name: trimmedName,
-      contact: trimmedContact,
-      location: trimmedLocation,
-      description: trimmedDescription,
-      image: form.image,
-      imageName: form.imageName,
-      status: "Pending",
-      creditsAwarded: 0,
-      submittedAt: new Date().toISOString(),
-    }
+    try {
+      const storedAuth = window.localStorage.getItem(STORAGE_AUTH_KEY)
+      const parsedAuth = storedAuth ? JSON.parse(storedAuth) as { accessToken?: string } : null
+      const accessToken = parsedAuth?.accessToken
 
-    setComplaints((prev) => [newComplaint, ...prev])
-    setForm(initialForm)
-    setNotice("Complaint submitted successfully. It is pending administrator review.")
-    setIsSubmittingComplaint(false)
+      if (!accessToken) {
+        throw new Error("You need to be signed in to submit a complaint.")
+      }
+
+      const formData = new FormData()
+      formData.append("name", trimmedName)
+      formData.append("contact", trimmedContact)
+      formData.append("location", trimmedLocation)
+      formData.append("description", trimmedDescription)
+      formData.append("complaintType", "General")
+      if (form.imageFile) {
+        formData.append("image", form.imageFile)
+      }
+
+      const response = await fetch(`${backendUrl}/api/citizen/complaints`, {
+        method: "POST",
+        headers: {
+          Authorization: `Bearer ${accessToken}`,
+        },
+        body: formData,
+      })
+
+      const payload = await response.json()
+      if (!response.ok) {
+        throw new Error(payload?.message ?? "Unable to submit complaint")
+      }
+
+      const complaintPayload = payload?.data ?? payload
+      const newComplaint: Complaint = {
+        id: complaintPayload?._id ?? complaintPayload?.id ?? `complaint-${Date.now()}`,
+        userId: complaintPayload?.userId ?? user?._id ?? user?.id ?? "unknown",
+        name: complaintPayload?.name ?? trimmedName,
+        contact: complaintPayload?.contact ?? trimmedContact,
+        location: complaintPayload?.location ?? trimmedLocation,
+        description: complaintPayload?.description ?? trimmedDescription,
+        complaintType: complaintPayload?.complaintType ?? "General",
+        image: complaintPayload?.imagePath ? `${backendUrl}${complaintPayload.imagePath}` : form.image,
+        imagePath: complaintPayload?.imagePath,
+        imageName: complaintPayload?.imageName ?? form.imageName,
+        status: complaintPayload?.status ?? "Pending",
+        creditsAwarded: complaintPayload?.creditsAwarded ?? 0,
+        submittedAt: complaintPayload?.submittedAt ?? new Date().toISOString(),
+      }
+
+      setComplaints((prev) => [newComplaint, ...prev])
+      setForm(initialForm)
+      setNotice("Complaint submitted successfully. It is pending administrator review.")
+    } catch (submitError) {
+      setNotice(submitError instanceof Error ? submitError.message : "Unable to submit complaint")
+    } finally {
+      setIsSubmittingComplaint(false)
+    }
   }
 
   const handleComplaintStatus = (complaintId: string, status: Complaint["status"]) => {
@@ -739,6 +788,13 @@ export function CitizenDashboard() {
                         {complaint.status}
                       </span>
                     </div>
+                    {complaint.imagePath || complaint.image ? (
+                      <img
+                        src={complaint.imagePath ? `${backendUrl}${complaint.imagePath}` : complaint.image}
+                        alt={complaint.imageName ?? "Complaint evidence"}
+                        className="mt-3 h-32 w-full rounded-xl object-cover"
+                      />
+                    ) : null}
                     {complaint.imageName ? (
                       <div className="mt-3 rounded-xl border border-white/10 bg-slate-950/70 p-2 text-xs text-slate-400">
                         Photo: {complaint.imageName}
