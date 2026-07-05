@@ -3,6 +3,7 @@ import express from "express";
 import ApiError from "./common/utils/api-error.js";
 import ApiResponse from "./common/utils/api-response.js";
 import authRoute from "./modules/auth/auth.routes.js";
+import citizenRoute from "./modules/citizen/citizen.routes.js";
 
 const app = express();
 
@@ -44,6 +45,7 @@ app.get("/api/health", (req, res) => {
 });
 
 app.use("/api/auth", authRoute);
+app.use("/api/citizen", citizenRoute);
 
 // Catch-all for undefined routes
 app.all("{*path}", (req, res) => {

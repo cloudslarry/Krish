@@ -51,8 +51,19 @@ export function LoginForm({
         throw new Error(payload?.message ?? "Unable to log in")
       }
 
+      const authPayload = payload?.data ?? payload
+      if (typeof window !== "undefined") {
+        window.localStorage.setItem(
+          "citizenAuth",
+          JSON.stringify({
+            user: authPayload?.user ?? null,
+            accessToken: authPayload?.accessToken ?? null,
+          }),
+        )
+      }
+
       setSuccess(payload?.message ?? "Login successful")
-      router.push("/")
+      router.push("/citizen")
       router.refresh()
     } catch (submitError) {
       setError(
