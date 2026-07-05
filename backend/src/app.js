@@ -1,9 +1,12 @@
+import path from "path";
 import cookieParser from "cookie-parser";
 import express from "express";
 import ApiError from "./common/utils/api-error.js";
 import ApiResponse from "./common/utils/api-response.js";
 import authRoute from "./modules/auth/auth.routes.js";
+import adminRoute from "./modules/admin/admin.routes.js";
 import citizenRoute from "./modules/citizen/citizen.routes.js";
+import workerRoute from "./modules/worker/worker.routes.js";
 
 const app = express();
 
@@ -36,6 +39,7 @@ app.use((req, res, next) => {
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
 app.use(cookieParser());
+app.use("/uploads", express.static(path.join(process.cwd(), "uploads")));
 
 app.get("/api/health", (req, res) => {
   ApiResponse.ok(res, "Backend is running", {
@@ -45,7 +49,9 @@ app.get("/api/health", (req, res) => {
 });
 
 app.use("/api/auth", authRoute);
+app.use("/api/admin", adminRoute);
 app.use("/api/citizen", citizenRoute);
+app.use("/api/worker", workerRoute);
 
 // Catch-all for undefined routes
 app.all("{*path}", (req, res) => {

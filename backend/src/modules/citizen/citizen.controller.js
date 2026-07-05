@@ -31,8 +31,9 @@ const submitComplaint = async (req, res, next) => {
       contact: req.body.contact,
       location: req.body.location,
       description: req.body.description,
+      complaintType: req.body.complaintType,
       imageBuffer: file?.buffer,
-      imageName: file?.originalname,
+      imageName: file?.originalname ?? req.body.imageName,
     };
 
     const complaint = await citizenService.createComplaint(payload);

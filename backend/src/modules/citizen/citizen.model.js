@@ -12,7 +12,9 @@ const complaintSchema = new mongoose.Schema(
     contact: { type: String, required: true, trim: true },
     location: { type: String, required: true, trim: true },
     description: { type: String, required: true, trim: true },
+    complaintType: { type: String, trim: true, default: "General" },
     imagePath: { type: String, required: true },
+    imageName: { type: String, trim: true, default: "complaint-image" },
     status: {
       type: String,
       enum: ["Pending", "Under Review", "Approved", "Rejected", "Resolved"],

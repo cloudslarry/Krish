@@ -53,7 +53,7 @@ const getDashboardData = async (userId) => {
   };
 };
 
-const createComplaint = async ({ userId, name, contact, location, description, imageBuffer, imageName }) => {
+const createComplaint = async ({ userId, name, contact, location, description, complaintType, imageBuffer, imageName }) => {
   if (!name?.trim()) throw ApiError.badRequest("Name cannot be empty");
   if (!contact?.trim()) throw ApiError.badRequest("Phone or email is required");
   if (!location?.trim()) throw ApiError.badRequest("Location is required");
@@ -93,7 +93,9 @@ const createComplaint = async ({ userId, name, contact, location, description, i
     contact,
     location,
     description,
+    complaintType: complaintType?.trim() || "General",
     imagePath: `/uploads/${fileName}`,
+    imageName: imageName || fileName,
     status: "Pending",
     creditsAwarded: 0,
   });
