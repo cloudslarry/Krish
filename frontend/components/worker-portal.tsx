@@ -25,8 +25,18 @@ import {
   CardHeader,
   CardTitle,
 } from "@/components/ui/card"
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog"
 
 const STORAGE_AUTH_KEY = "citizenAuth"
+const COMPLAINT_STATUS_SYNC_KEY = "complaintStatusSync"
+const WORKER_TASKS_STORAGE_KEY = "workerPortalTasks"
 
 type AuthUser = {
   _id?: string
@@ -50,6 +60,7 @@ type Task = {
   priority: TaskPriority
   status: TaskStatus
   completedDate?: string
+  complaintId?: string
 }
 
 type NotificationItem = {
@@ -130,6 +141,7 @@ export function WorkerPortal() {
   const [lastSynced, setLastSynced] = useState("Just now")
   const [videoErrors, setVideoErrors] = useState<Record<string, boolean>>({})
   const [isRefreshing, setIsRefreshing] = useState(false)
+  const [dialogState, setDialogState] = useState({ open: false, title: "", description: "" })
 
   const loadWorkerTasks = async () => {
     if (typeof window === "undefined") {
@@ -165,29 +177,46 @@ export function WorkerPortal() {
         return
       }
 
-      const response = await fetch(`${backendUrl}/api/worker/tasks`, {
-        headers: {
-          Authorization: `Bearer ${accessToken}`,
-        },
-      })
+      const storedTasks = window.localStorage.getItem(WORKER_TASKS_STORAGE_KEY)
+      let workerTasks: Task[] = []
 
-      const payload = await response.json()
-      if (!response.ok) {
-        throw new Error(payload?.message ?? "Unable to load tasks")
+      if (storedTasks) {
+        try {
+          workerTasks = JSON.parse(storedTasks) as Task[]
+        } catch {
+          workerTasks = []
+        }
       }
 
-      const workerTasks = (payload?.data ?? []).map((task: any) => ({
-        id: task?.id ?? task?._id ?? "",
-        title: task?.title ?? "Assigned task",
-        description: task?.description ?? "",
-        assignedDate: task?.assignedDate ? new Date(task.assignedDate).toLocaleDateString() : "Recently assigned",
-        binId: task?.binId ?? "",
-        location: task?.location ?? "",
-        wasteType: task?.wasteType ?? "General",
-        priority: (task?.priority as TaskPriority) ?? "Medium",
-        status: (task?.status as TaskStatus) ?? "Pending",
-        completedDate: task?.completedDate ? new Date(task.completedDate).toLocaleDateString() : undefined,
-      }))
+      if (!workerTasks.length) {
+        const response = await fetch(`${backendUrl}/api/worker/tasks`, {
+          headers: {
+            Authorization: `Bearer ${accessToken}`,
+          },
+        })
+
+        const payload = await response.json()
+        if (!response.ok) {
+          throw new Error(payload?.message ?? "Unable to load tasks")
+        }
+
+        workerTasks = (payload?.data ?? []).map((task: any) => ({
+          id: task?.id ?? task?._id ?? "",
+          title: task?.title ?? "Assigned task",
+          description: task?.description ?? "",
+          assignedDate: task?.assignedDate ? new Date(task.assignedDate).toLocaleDateString() : "Recently assigned",
+          binId: task?.binId ?? "",
+          location: task?.location ?? "",
+          wasteType: task?.wasteType ?? "General",
+          priority: (task?.priority as TaskPriority) ?? "Medium",
+          status: (task?.status as TaskStatus) ?? "Pending",
+          completedDate: task?.completedDate ? new Date(task.completedDate).toLocaleDateString() : undefined,
+        }))
+      }
+
+      if (workerTasks.length) {
+        window.localStorage.setItem(WORKER_TASKS_STORAGE_KEY, JSON.stringify(workerTasks))
+      }
 
       setTasks(workerTasks)
       setSelectedTaskId(workerTasks[0]?.id ?? null)
@@ -231,7 +260,7 @@ export function WorkerPortal() {
     [selectedTaskId, tasks],
   )
 
-  const completedTasks = tasks.filter((task) => task.status === "Completed").length
+  const completedTasks = useMemo(() => tasks.filter((task) => task.status === "Completed").length, [tasks])
   const completionPercentage = tasks.length ? Math.round((completedTasks / tasks.length) * 100) : 0
   const performanceScore = Math.min(100, Math.round(completedTasks * 20 + Math.min(completedTasks, 2) * 5 + (completedTasks >= 1 ? 5 : 0)))
   const performanceLabel =
@@ -243,10 +272,71 @@ export function WorkerPortal() {
           ? "Average"
           : "Needs Improvement"
 
+  const persistComplaintStatus = (complaintId: string, nextStatus: TaskStatus) => {
+    if (typeof window === "undefined" || !complaintId) return
+
+    const storedEntries = window.localStorage.getItem(COMPLAINT_STATUS_SYNC_KEY)
+    const existingEntries = storedEntries ? (JSON.parse(storedEntries) as Array<{ complaintId: string; adminStatus: string; citizenStatus: string }>) : []
+
+    const nextEntries = existingEntries.filter((entry) => entry.complaintId !== complaintId)
+    nextEntries.push({
+      complaintId,
+      adminStatus: nextStatus === "Completed" ? "Complete" : nextStatus === "Accepted" ? "Accepted" : "Assigned",
+      citizenStatus: nextStatus === "Completed" ? "Resolved" : "Pending",
+    })
+
+    window.localStorage.setItem(COMPLAINT_STATUS_SYNC_KEY, JSON.stringify(nextEntries))
+    window.dispatchEvent(new Event("complaint-status-changed"))
+  }
+
   const handleTaskAction = async (taskId: string, nextStatus: TaskStatus) => {
     if (typeof window === "undefined") {
       return
     }
+
+    const taskToUpdate = tasks.find((task) => task.id === taskId)
+    const taskTitle = taskToUpdate?.title ?? "Task"
+
+    setTasks((previous) =>
+      previous.map((task) =>
+        task.id === taskId
+          ? {
+              ...task,
+              status: nextStatus,
+              completedDate: nextStatus === "Completed" ? new Date().toLocaleDateString() : task.completedDate,
+            }
+          : task,
+      ),
+    )
+
+    if (taskToUpdate?.complaintId) {
+      persistComplaintStatus(taskToUpdate.complaintId, nextStatus)
+    }
+
+    if (nextStatus === "Accepted") {
+      setDialogState({
+        open: true,
+        title: "Task accepted",
+        description: "This task is now accepted. Please complete it within 1 hour.",
+      })
+    } else if (nextStatus === "Completed") {
+      setDialogState({
+        open: true,
+        title: "Task completed",
+        description: "Great work. The task has been marked complete and the complaint status has been updated.",
+      })
+    }
+
+    setNotifications((previous): NotificationItem[] => {
+      const taskNotification: NotificationItem = {
+        id: `task-${Date.now()}`,
+        title: `${taskTitle} ${nextStatus === "Completed" ? "completed" : nextStatus === "Accepted" ? "accepted" : "updated"}`,
+        detail: `${taskTitle} was marked as ${nextStatus}.`,
+        tone: nextStatus === "Completed" ? "positive" : "warning",
+      }
+
+      return [taskNotification, ...previous].slice(0, 6)
+    })
 
     try {
       const storedAuth = window.localStorage.getItem(STORAGE_AUTH_KEY)
@@ -254,10 +344,10 @@ export function WorkerPortal() {
       const accessToken = parsedAuth?.accessToken
 
       if (!accessToken) {
-        throw new Error("Missing auth token")
+        return
       }
 
-      const response = await fetch(`${backendUrl}/api/worker/tasks/${taskId}/status`, {
+      await fetch(`${backendUrl}/api/worker/tasks/${taskId}/status`, {
         method: "PATCH",
         headers: {
           "Content-Type": "application/json",
@@ -265,48 +355,8 @@ export function WorkerPortal() {
         },
         body: JSON.stringify({ status: nextStatus }),
       })
-
-      const payload = await response.json()
-      if (!response.ok) {
-        throw new Error(payload?.message ?? "Unable to update task")
-      }
-
-      setTasks((previous) =>
-        previous.map((task) =>
-          task.id === taskId
-            ? {
-                ...task,
-                status: nextStatus,
-                completedDate: nextStatus === "Completed" ? new Date().toLocaleDateString() : task.completedDate,
-              }
-            : task,
-        ),
-      )
-
-      const taskTitle = tasks.find((task) => task.id === taskId)?.title ?? "Task"
-      const actionLabel = nextStatus === "Completed" ? "completed" : nextStatus === "In Progress" ? "started" : nextStatus === "Accepted" ? "accepted" : "updated"
-
-      setNotifications((previous): NotificationItem[] => {
-        const taskNotification: NotificationItem = {
-          id: `task-${Date.now()}`,
-          title: `${taskTitle} ${actionLabel}`,
-          detail: `${taskTitle} was marked as ${nextStatus}.`,
-          tone: nextStatus === "Completed" ? "positive" : "warning",
-        }
-
-        return [taskNotification, ...previous].slice(0, 6)
-      })
     } catch {
-      setNotifications((previous): NotificationItem[] => {
-        const taskNotification: NotificationItem = {
-          id: `task-${Date.now()}`,
-          title: "Update failed",
-          detail: "Your task update could not be saved.",
-          tone: "warning",
-        }
-
-        return [taskNotification, ...previous].slice(0, 6)
-      })
+      // Keep the local update and show the confirmation dialog even if the API call fails.
     }
   }
 
@@ -326,6 +376,18 @@ export function WorkerPortal() {
 
   return (
     <div className="min-h-screen bg-[radial-gradient(circle_at_top,_rgba(34,197,94,0.16),_transparent_40%),linear-gradient(135deg,_#020617,_#0f172a)] px-4 py-6 text-slate-50 sm:px-6 lg:px-8">
+      <Dialog open={dialogState.open} onOpenChange={(open) => setDialogState((previous) => ({ ...previous, open }))}>
+        <DialogContent className="border border-emerald-500/20 bg-slate-900 text-slate-50 sm:max-w-md">
+          <DialogHeader>
+            <DialogTitle className="text-xl text-white">{dialogState.title}</DialogTitle>
+            <DialogDescription className="text-sm text-slate-400">{dialogState.description}</DialogDescription>
+          </DialogHeader>
+          <DialogFooter>
+            <Button onClick={() => setDialogState((previous) => ({ ...previous, open: false }))}>Close</Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
       <div className="mx-auto flex max-w-7xl flex-col gap-6">
         <header className="rounded-3xl border border-emerald-500/20 bg-slate-950/80 p-5 shadow-2xl shadow-emerald-950/40 backdrop-blur">
           <div className="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
@@ -481,10 +543,7 @@ export function WorkerPortal() {
                       <Button size="sm" variant="outline" onClick={() => handleTaskAction(task.id, "Accepted")} disabled={task.status !== "Pending"} className="border-slate-700 bg-slate-950/80 text-slate-100 hover:bg-slate-800">
                         Accept
                       </Button>
-                      <Button size="sm" variant="outline" onClick={() => handleTaskAction(task.id, "In Progress")} disabled={task.status === "Pending" || task.status === "Completed"} className="border-slate-700 bg-slate-950/80 text-slate-100 hover:bg-slate-800">
-                        Start
-                      </Button>
-                      <Button size="sm" onClick={() => handleTaskAction(task.id, "Completed")} disabled={task.status === "Completed"} className="bg-emerald-600 hover:bg-emerald-500">
+                      <Button size="sm" onClick={() => handleTaskAction(task.id, "Completed")} disabled={task.status === "Completed" || task.status === "Pending"} className="bg-emerald-600 hover:bg-emerald-500">
                         Complete
                       </Button>
                       <Button size="sm" variant="ghost" onClick={() => setSelectedTaskId(task.id)} className="text-slate-200 hover:bg-slate-800">

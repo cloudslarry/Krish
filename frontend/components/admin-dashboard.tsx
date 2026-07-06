@@ -24,6 +24,14 @@ import {
   CardHeader,
   CardTitle,
 } from "@/components/ui/card"
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog"
 import { Input } from "@/components/ui/input"
 import { Progress } from "@/components/ui/progress"
 import { cn } from "@/lib/utils"
@@ -105,6 +113,7 @@ type AssignFormState = {
 }
 
 const STORAGE_AUTH_KEY = "citizenAuth"
+const WORKER_TASKS_STORAGE_KEY = "workerPortalTasks"
 const initialBins: Bin[] = [
   {
     id: "BIN001",
@@ -274,6 +283,40 @@ export function AdminDashboard() {
   const [isHydrated, setIsHydrated] = useState(false)
   const [isSubmittingTask, setIsSubmittingTask] = useState(false)
   const [selectedComplaintId, setSelectedComplaintId] = useState<string | null>(null)
+  const [isAssignmentDialogOpen, setIsAssignmentDialogOpen] = useState(false)
+  const [complaintForAssignment, setComplaintForAssignment] = useState<Complaint | null>(null)
+
+  useEffect(() => {
+    if (typeof window === "undefined") return
+
+    const syncComplaintStatus = () => {
+      const storedEntries = window.localStorage.getItem("complaintStatusSync")
+      if (!storedEntries) return
+
+      const entries = JSON.parse(storedEntries) as Array<{ complaintId: string; adminStatus: string; citizenStatus: string }>
+      setComplaints((previous) =>
+        previous.map((complaint) => {
+          const matchedEntry = entries.find((entry) => entry.complaintId === complaint.id)
+          if (!matchedEntry) return complaint
+          return { ...complaint, status: matchedEntry.adminStatus as ComplaintStatus }
+        }),
+      )
+    }
+
+    syncComplaintStatus()
+    window.addEventListener("storage", syncComplaintStatus)
+    window.addEventListener("complaint-status-changed", syncComplaintStatus)
+    return () => {
+      window.removeEventListener("storage", syncComplaintStatus)
+      window.removeEventListener("complaint-status-changed", syncComplaintStatus)
+    }
+  }, [])
+
+  const persistWorkerTasks = (nextTasks: Task[]) => {
+    if (typeof window !== "undefined") {
+      window.localStorage.setItem(WORKER_TASKS_STORAGE_KEY, JSON.stringify(nextTasks))
+    }
+  }
 
   const loadDashboardData = async (token?: string) => {
     try {
@@ -429,6 +472,65 @@ export function AdminDashboard() {
     router.replace("/login")
   }
 
+  const handleComplaintAssignment = async (complaint: Complaint, worker: Worker) => {
+    try {
+      const authToken = window.localStorage.getItem("citizenAuth")
+      const parsedAuth = authToken ? JSON.parse(authToken) as { accessToken?: string } : null
+      const accessToken = parsedAuth?.accessToken
+      if (!accessToken) throw new Error("Missing auth token")
+
+      const response = await fetch(`${backendUrl}/api/worker/complaints/assign`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${accessToken}`,
+        },
+        body: JSON.stringify({
+          complaintId: complaint.id,
+          workerId: worker.id,
+        }),
+      })
+
+      const payload = await response.json()
+      if (!response.ok) throw new Error(payload?.message ?? "Unable to assign complaint")
+
+      const newTask: Task = {
+        id: payload?.data?.id ?? payload?.data?._id ?? `TSK${Date.now().toString().slice(-4)}`,
+        title: complaint.complaintType,
+        details: complaint.description,
+        assignedTo: worker.name,
+        createdAt: "Just now",
+        status: "In Progress",
+        workerId: worker.id,
+        complaintId: complaint.id,
+        location: complaint.location,
+        priority: "High",
+      }
+
+      setTasks((previous) => {
+        const nextTasks = [newTask, ...previous]
+        persistWorkerTasks(nextTasks)
+        return nextTasks
+      })
+      setWorkers((previous) => previous.map((item) => (item.id === worker.id ? { ...item, status: "Busy" } : item)))
+      setComplaints((previous) => previous.map((item) => (item.id === complaint.id ? { ...item, status: "Assigned" } : item)))
+      setSelectedComplaintId(complaint.id)
+      setAssignMessage(`Complaint ${complaint.id} assigned to ${worker.name}.`)
+      const newNotification: NotificationItem = {
+        id: `N${Date.now()}`,
+        title: `Task assigned to ${worker.name}`,
+        detail: `${complaint.complaintType} is now visible in the worker portal.`,
+        tone: "positive",
+      }
+      setNotifications((previous) => [newNotification, ...previous].slice(0, 6))
+    } catch (error) {
+      setAssignMessage(error instanceof Error ? error.message : "Unable to assign complaint")
+    } finally {
+      setIsAssignmentDialogOpen(false)
+      setComplaintForAssignment(null)
+    }
+  }
+
   const handleAssignTask = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault()
     if (!assignForm.title.trim() || !assignForm.details.trim()) {
@@ -517,6 +619,45 @@ export function AdminDashboard() {
 
   return (
     <main className="min-h-screen bg-[radial-gradient(circle_at_top,_rgba(34,211,238,0.16),_transparent_30%),linear-gradient(135deg,#020617_0%,#111827_100%)] px-4 py-6 text-slate-50 sm:px-6 lg:px-8">
+      <Dialog open={isAssignmentDialogOpen} onOpenChange={(open) => {
+        setIsAssignmentDialogOpen(open)
+        if (!open) {
+          setComplaintForAssignment(null)
+        }
+      }}>
+        <DialogContent className="border border-cyan-400/20 bg-slate-900 text-slate-50 sm:max-w-md">
+          <DialogHeader>
+            <DialogTitle className="text-xl text-white">Assign complaint to a worker</DialogTitle>
+            <DialogDescription className="text-sm text-slate-400">
+              Choose a worker for {complaintForAssignment?.id ?? "this complaint"}. The task will appear in the worker portal right away.
+            </DialogDescription>
+          </DialogHeader>
+          <div className="space-y-2">
+            {workers.map((worker) => (
+              <button
+                key={worker.id}
+                type="button"
+                onClick={() => complaintForAssignment && handleComplaintAssignment(complaintForAssignment, worker)}
+                className="flex w-full items-center justify-between rounded-2xl border border-white/10 bg-white/5 px-4 py-3 text-left text-sm text-slate-200 transition hover:border-cyan-400/40 hover:bg-cyan-500/10"
+              >
+                <span>
+                  <span className="block font-semibold text-white">{worker.name}</span>
+                  <span className="text-xs text-slate-400">{worker.id}</span>
+                </span>
+                <span className="rounded-full border border-cyan-400/20 bg-cyan-500/10 px-2 py-1 text-xs text-cyan-200">
+                  {worker.status}
+                </span>
+              </button>
+            ))}
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setIsAssignmentDialogOpen(false)}>
+              Cancel
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
       <div className="mx-auto flex max-w-7xl flex-col gap-6">
         <header className="rounded-[2rem] border border-white/10 bg-slate-900/80 p-5 shadow-2xl backdrop-blur xl:p-7">
           <div className="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
@@ -565,7 +706,7 @@ export function AdminDashboard() {
               <CardTitle className="text-sm font-medium text-slate-400">Total Bins</CardTitle>
             </CardHeader>
             <CardContent>
-              <div className="text-3xl font-semibold">{totalBins}</div>
+              <div className="text-3xl font-semibold text-white">{totalBins}</div>
               <p className="mt-2 text-sm text-slate-400">Across all monitored zones</p>
             </CardContent>
           </Card>
@@ -574,7 +715,7 @@ export function AdminDashboard() {
               <CardTitle className="text-sm font-medium text-slate-400">Open Complaints</CardTitle>
             </CardHeader>
             <CardContent>
-              <div className="text-3xl font-semibold">{openComplaints}</div>
+              <div className="text-3xl font-semibold text-white">{openComplaints}</div>
               <p className="mt-2 text-sm text-slate-400">Citizen issues awaiting action</p>
             </CardContent>
           </Card>
@@ -583,7 +724,7 @@ export function AdminDashboard() {
               <CardTitle className="text-sm font-medium text-slate-400">Active Workers</CardTitle>
             </CardHeader>
             <CardContent>
-              <div className="text-3xl font-semibold">{activeWorkers}</div>
+              <div className="text-3xl font-semibold text-white">{activeWorkers}</div>
               <p className="mt-2 text-sm text-slate-400">Ready for task allocation</p>
             </CardContent>
           </Card>
@@ -593,7 +734,7 @@ export function AdminDashboard() {
             </CardHeader>
             <CardContent>
               <div className="flex items-center gap-3">
-                <div className="text-3xl font-semibold">{criticalBins}</div>
+                <div className="text-3xl font-semibold text-white">{criticalBins}</div>
                 <Badge className="border-rose-400/30 bg-rose-500/10 text-rose-200">{criticalBins} bins critical</Badge>
               </div>
             </CardContent>
@@ -749,33 +890,9 @@ export function AdminDashboard() {
                           size="sm"
                           variant="outline"
                           className="border-cyan-400/20 bg-cyan-500/10 text-cyan-100"
-                          onClick={async () => {
-                            try {
-                              const authToken = window.localStorage.getItem("citizenAuth")
-                              const parsedAuth = authToken ? JSON.parse(authToken) as { accessToken?: string } : null
-                              const accessToken = parsedAuth?.accessToken
-                              if (!accessToken) throw new Error("Missing auth token")
-
-                              const response = await fetch(`${backendUrl}/api/worker/complaints/assign`, {
-                                method: "POST",
-                                headers: {
-                                  "Content-Type": "application/json",
-                                  Authorization: `Bearer ${accessToken}`,
-                                },
-                                body: JSON.stringify({
-                                  complaintId: complaint.id,
-                                  workerId: assignForm.workerId,
-                                }),
-                              })
-
-                              const payload = await response.json()
-                              if (!response.ok) throw new Error(payload?.message ?? "Unable to assign complaint")
-
-                              setSelectedComplaintId(complaint.id)
-                              setAssignMessage(`Complaint ${complaint.id} assigned to ${workers.find((worker) => worker.id === assignForm.workerId)?.name ?? "worker"}.`)
-                            } catch (error) {
-                              setAssignMessage(error instanceof Error ? error.message : "Unable to assign complaint")
-                            }
+                          onClick={() => {
+                            setComplaintForAssignment(complaint)
+                            setIsAssignmentDialogOpen(true)
                           }}
                         >
                           Assign complaint to worker

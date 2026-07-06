@@ -13,6 +13,14 @@ import {
   CardHeader,
   CardTitle,
 } from "@/components/ui/card"
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog"
 import { Input } from "@/components/ui/input"
 import { cn } from "@/lib/utils"
 
@@ -35,7 +43,7 @@ type Complaint = {
   image?: string
   imagePath?: string
   imageName?: string
-  status: "Pending" | "Under Review" | "Approved" | "Rejected" | "Resolved"
+  status: "Pending" | "Under Review" | "Approved" | "Rejected" | "Resolved" | "Complete"
   creditsAwarded: number
   submittedAt: string
 }
@@ -67,7 +75,7 @@ type FormState = {
   imageFile: File | null
 }
 
-const DEFAULT_CREDITS = 250
+const DEFAULT_CREDITS = 0
 const STORAGE_AUTH_KEY = "citizenAuth"
 const STORAGE_DASHBOARD_KEY = "citizenDashboardState"
 const WEEK_IN_MS = 7 * 24 * 60 * 60 * 1000
@@ -188,6 +196,34 @@ export function CitizenDashboard() {
   const [notice, setNotice] = useState<string | null>(null)
   const [isHydrated, setIsHydrated] = useState(false)
   const [isSubmittingComplaint, setIsSubmittingComplaint] = useState(false)
+  const [isSuccessDialogOpen, setIsSuccessDialogOpen] = useState(false)
+  const [submittedComplaint, setSubmittedComplaint] = useState<Complaint | null>(null)
+
+  useEffect(() => {
+    if (typeof window === "undefined") return
+
+    const syncComplaintStatus = () => {
+      const storedEntries = window.localStorage.getItem("complaintStatusSync")
+      if (!storedEntries) return
+
+      const entries = JSON.parse(storedEntries) as Array<{ complaintId: string; citizenStatus: string }>
+      setComplaints((previous) =>
+        previous.map((complaint) => {
+          const matchedEntry = entries.find((entry) => entry.complaintId === complaint.id)
+          if (!matchedEntry) return complaint
+          return { ...complaint, status: matchedEntry.citizenStatus as Complaint["status"] }
+        }),
+      )
+    }
+
+    syncComplaintStatus()
+    window.addEventListener("storage", syncComplaintStatus)
+    window.addEventListener("complaint-status-changed", syncComplaintStatus)
+    return () => {
+      window.removeEventListener("storage", syncComplaintStatus)
+      window.removeEventListener("complaint-status-changed", syncComplaintStatus)
+    }
+  }, [])
 
   useEffect(() => {
     if (typeof window === "undefined") return
@@ -435,6 +471,9 @@ export function CitizenDashboard() {
       }
 
       setComplaints((prev) => [newComplaint, ...prev])
+      setCredits((prev) => prev + 100)
+      setSubmittedComplaint(newComplaint)
+      setIsSuccessDialogOpen(true)
       setForm(initialForm)
       setNotice("Complaint submitted successfully. It is pending administrator review.")
     } catch (submitError) {
@@ -445,22 +484,14 @@ export function CitizenDashboard() {
   }
 
   const handleComplaintStatus = (complaintId: string, status: Complaint["status"]) => {
-    let shouldAwardCredits = false
-
     setComplaints((prev) =>
       prev.map((complaint) => {
         if (complaint.id !== complaintId) return complaint
-        if (status === "Approved" && complaint.status !== "Approved") {
-          shouldAwardCredits = true
-        }
         return { ...complaint, status }
       }),
     )
 
-    if (shouldAwardCredits) {
-      setCredits((prev) => prev + 100)
-      setNotice("Complaint approved. 100 Green Credits were added to your wallet.")
-    }
+    setNotice(`Complaint marked as ${status}.`)
   }
 
   const handleRedeem = (reward: Reward) => {
@@ -484,6 +515,32 @@ export function CitizenDashboard() {
 
   return (
     <main className="min-h-screen bg-[radial-gradient(circle_at_top,_rgba(16,185,129,0.22),_transparent_35%),linear-gradient(135deg,#020617_0%,#111827_100%)] px-4 py-8 text-slate-50 sm:px-6 lg:px-8">
+      <Dialog open={isSuccessDialogOpen} onOpenChange={setIsSuccessDialogOpen}>
+        <DialogContent className="border border-emerald-500/20 bg-slate-900 text-slate-50">
+          <DialogHeader>
+            <DialogTitle className="text-xl text-emerald-300">Complaint submitted</DialogTitle>
+            <DialogDescription className="text-sm text-slate-300">
+              Your complaint has been recorded successfully. It now appears in your history with a Pending status.
+            </DialogDescription>
+          </DialogHeader>
+          {submittedComplaint ? (
+            <div className="rounded-2xl border border-white/10 bg-white/5 p-4 text-sm text-slate-300">
+              <div className="font-semibold text-slate-100">{submittedComplaint.description}</div>
+              <div className="mt-2 text-slate-400">{submittedComplaint.location}</div>
+              <div className="mt-3 flex items-center justify-between">
+                <span className="rounded-full bg-emerald-500/15 px-3 py-1 text-xs font-medium text-emerald-200">
+                  Pending
+                </span>
+                <span className="text-emerald-300">+100 credits</span>
+              </div>
+            </div>
+          ) : null}
+          <DialogFooter>
+            <Button onClick={() => setIsSuccessDialogOpen(false)}>Close</Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
       <div className="mx-auto flex max-w-7xl flex-col gap-6">
         <header className="rounded-[2rem] border border-emerald-500/20 bg-slate-900/80 p-6 shadow-2xl shadow-emerald-950/20 backdrop-blur xl:p-8">
           <div className="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
@@ -525,7 +582,7 @@ export function CitizenDashboard() {
             <CardHeader>
               <CardTitle>Green Credits overview</CardTitle>
               <CardDescription className="text-slate-300">
-                Every approved complaint adds 100 credits. Redemption spends credits instantly.
+                Each submitted complaint adds 100 credits. Redemption spends credits instantly.
               </CardDescription>
             </CardHeader>
             <CardContent className="space-y-4">
@@ -533,7 +590,7 @@ export function CitizenDashboard() {
                 <div className="text-sm uppercase tracking-[0.3em] text-emerald-200">Balance</div>
                 <div className="mt-3 text-5xl font-semibold text-emerald-300">{credits}</div>
                 <div className="mt-3 text-sm text-emerald-100">
-                  Approved complaints award 100 Green Credits and rejected complaints do not.
+                  Every submitted complaint awards 100 Green Credits immediately.
                 </div>
               </div>
               <div className="grid gap-3 sm:grid-cols-2">
@@ -607,9 +664,6 @@ export function CitizenDashboard() {
                 <div className="mt-1 text-sm text-emerald-100">Week: {cleanupEvent.week}</div>
               </div>
             </CardContent>
-            <CardFooter>
-              <Button variant="outline">Join event</Button>
-            </CardFooter>
           </Card>
 
           <Card className="border-white/10 bg-slate-900/80 text-slate-50 shadow-2xl">
@@ -801,7 +855,7 @@ export function CitizenDashboard() {
                       </div>
                     ) : null}
                     <div className="mt-3 flex flex-wrap gap-2">
-                      {(["Pending", "Under Review", "Approved", "Rejected", "Resolved"] as Complaint["status"][]).map((status) => (
+                      {(["Pending", "Under Review", "Approved", "Rejected", "Resolved", "Complete"] as Complaint["status"][]).map((status) => (
                         <Button
                           key={status}
                           size="sm"
