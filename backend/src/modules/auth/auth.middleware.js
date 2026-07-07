@@ -16,9 +16,11 @@ const authenticate = async (req, res, next) => {
   const user = await User.findById(decoded.id);
   if (!user) throw ApiError.unauthorized("User no longer exists");
 
+  const normalizedRole = String(user.role ?? "").toLowerCase();
+
   req.user = {
     id: user._id,
-    role: user.role,
+    role: normalizedRole,
     name: user.name,
     email: user.email,
   };
@@ -27,8 +29,9 @@ const authenticate = async (req, res, next) => {
 
 // Higher-order function — returns middleware configured with allowed roles
 const authorize = (...roles) => {
+  const normalizedRoles = roles.map((role) => String(role).toLowerCase());
   return (req, res, next) => {
-    if (!roles.includes(req.user.role)) {
+    if (!normalizedRoles.includes(String(req.user.role).toLowerCase())) {
       throw ApiError.forbidden(
         "You do not have permission to perform this action",
       );

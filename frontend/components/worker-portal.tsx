@@ -77,30 +77,7 @@ type TrainingVideo = {
   category: string
 }
 
-const initialTasks: Task[] = [
-  {
-    id: "TSK101",
-    title: "Wet waste collection",
-    description: "Collect mixed wet waste from Sector 7 before noon and ensure the bin is secured.",
-    assignedDate: "2026-07-05",
-    binId: "BIN001",
-    location: "Sector 7, Near Park Gate",
-    wasteType: "Wet",
-    priority: "High",
-    status: "Pending",
-  },
-  {
-    id: "TSK102",
-    title: "Hazardous waste pickup",
-    description: "Secure and transport hazardous waste from the school boundary with PPE.",
-    assignedDate: "2026-07-05",
-    binId: "BIN003",
-    location: "Sector 9, School Road",
-    wasteType: "Hazardous",
-    priority: "Critical",
-    status: "Accepted",
-  },
-]
+const initialTasks: Task[] = []
 
 const initialNotifications: NotificationItem[] = [
   {
@@ -143,7 +120,7 @@ export function WorkerPortal() {
   const [isRefreshing, setIsRefreshing] = useState(false)
   const [dialogState, setDialogState] = useState({ open: false, title: "", description: "" })
 
-  const loadWorkerTasks = async () => {
+  const loadWorkerTasks = async (forceFetch = false) => {
     if (typeof window === "undefined") {
       return
     }
@@ -180,15 +157,7 @@ export function WorkerPortal() {
       const storedTasks = window.localStorage.getItem(WORKER_TASKS_STORAGE_KEY)
       let workerTasks: Task[] = []
 
-      if (storedTasks) {
-        try {
-          workerTasks = JSON.parse(storedTasks) as Task[]
-        } catch {
-          workerTasks = []
-        }
-      }
-
-      if (!workerTasks.length) {
+      try {
         const response = await fetch(`${backendUrl}/api/worker/tasks`, {
           headers: {
             Authorization: `Bearer ${accessToken}`,
@@ -212,6 +181,14 @@ export function WorkerPortal() {
           status: (task?.status as TaskStatus) ?? "Pending",
           completedDate: task?.completedDate ? new Date(task.completedDate).toLocaleDateString() : undefined,
         }))
+      } catch {
+        if (storedTasks) {
+          try {
+            workerTasks = JSON.parse(storedTasks) as Task[]
+          } catch {
+            workerTasks = []
+          }
+        }
       }
 
       if (workerTasks.length) {
@@ -227,6 +204,9 @@ export function WorkerPortal() {
   }
 
   useEffect(() => {
+    if (typeof window !== "undefined") {
+      window.localStorage.removeItem(WORKER_TASKS_STORAGE_KEY)
+    }
     void loadWorkerTasks()
   }, [router])
 
@@ -255,6 +235,28 @@ export function WorkerPortal() {
     return () => window.clearInterval(timer)
   }, [])
 
+  useEffect(() => {
+    if (typeof window === "undefined") {
+      return
+    }
+
+    const handleWorkerTasksUpdated = async (event: StorageEvent | Event) => {
+      if (event instanceof StorageEvent) {
+        if (event.key !== WORKER_TASKS_STORAGE_KEY && event.key !== "workerTasksUpdatedAt") return
+      }
+
+      await loadWorkerTasks(true)
+    }
+
+    window.addEventListener("storage", handleWorkerTasksUpdated)
+    window.addEventListener("worker-tasks-updated", handleWorkerTasksUpdated)
+
+    return () => {
+      window.removeEventListener("storage", handleWorkerTasksUpdated)
+      window.removeEventListener("worker-tasks-updated", handleWorkerTasksUpdated)
+    }
+  }, [])
+
   const selectedTask = useMemo(
     () => tasks.find((task) => task.id === selectedTaskId) ?? tasks[0] ?? null,
     [selectedTaskId, tasks],
@@ -281,12 +283,17 @@ export function WorkerPortal() {
     const nextEntries = existingEntries.filter((entry) => entry.complaintId !== complaintId)
     nextEntries.push({
       complaintId,
-      adminStatus: nextStatus === "Completed" ? "Complete" : nextStatus === "Accepted" ? "Accepted" : "Assigned",
+      adminStatus: nextStatus === "Completed" ? "Complete" : nextStatus === "In Progress" ? "Assigned" : nextStatus,
       citizenStatus: nextStatus === "Completed" ? "Resolved" : "Pending",
     })
 
     window.localStorage.setItem(COMPLAINT_STATUS_SYNC_KEY, JSON.stringify(nextEntries))
     window.dispatchEvent(new Event("complaint-status-changed"))
+  }
+
+  const persistWorkerTasks = (nextTasks: Task[]) => {
+    if (typeof window === "undefined") return
+    window.localStorage.setItem(WORKER_TASKS_STORAGE_KEY, JSON.stringify(nextTasks))
   }
 
   const handleTaskAction = async (taskId: string, nextStatus: TaskStatus) => {
@@ -297,27 +304,28 @@ export function WorkerPortal() {
     const taskToUpdate = tasks.find((task) => task.id === taskId)
     const taskTitle = taskToUpdate?.title ?? "Task"
 
-    setTasks((previous) =>
-      previous.map((task) =>
-        task.id === taskId
-          ? {
-              ...task,
-              status: nextStatus,
-              completedDate: nextStatus === "Completed" ? new Date().toLocaleDateString() : task.completedDate,
-            }
-          : task,
-      ),
+    const updatedTasks = tasks.map((task) =>
+      task.id === taskId
+        ? {
+            ...task,
+            status: nextStatus,
+            completedDate: nextStatus === "Completed" ? new Date().toLocaleDateString() : task.completedDate,
+          }
+        : task,
     )
+
+    setTasks(updatedTasks)
+    persistWorkerTasks(updatedTasks)
 
     if (taskToUpdate?.complaintId) {
       persistComplaintStatus(taskToUpdate.complaintId, nextStatus)
     }
 
-    if (nextStatus === "Accepted") {
+    if (nextStatus === "In Progress") {
       setDialogState({
         open: true,
-        title: "Task accepted",
-        description: "This task is now accepted. Please complete it within 1 hour.",
+        title: "Task started",
+        description: "This task is now in progress. Please mark it complete when finished.",
       })
     } else if (nextStatus === "Completed") {
       setDialogState({
@@ -330,7 +338,7 @@ export function WorkerPortal() {
     setNotifications((previous): NotificationItem[] => {
       const taskNotification: NotificationItem = {
         id: `task-${Date.now()}`,
-        title: `${taskTitle} ${nextStatus === "Completed" ? "completed" : nextStatus === "Accepted" ? "accepted" : "updated"}`,
+        title: `${taskTitle} ${nextStatus === "Completed" ? "completed" : nextStatus === "In Progress" ? "started" : "updated"}`,
         detail: `${taskTitle} was marked as ${nextStatus}.`,
         tone: nextStatus === "Completed" ? "positive" : "warning",
       }
@@ -540,10 +548,21 @@ export function WorkerPortal() {
                       <span>Priority: {task.priority}</span>
                     </div>
                     <div className="mt-4 flex flex-wrap gap-2">
-                      <Button size="sm" variant="outline" onClick={() => handleTaskAction(task.id, "Accepted")} disabled={task.status !== "Pending"} className="border-slate-700 bg-slate-950/80 text-slate-100 hover:bg-slate-800">
-                        Accept
+                      <Button
+                        size="sm"
+                        variant={task.status === "Accepted" || task.status === "In Progress" ? "outline" : "default"}
+                        onClick={() => handleTaskAction(task.id, "In Progress")}
+                        disabled={task.status !== "Accepted" && task.status !== "Pending"}
+                        className="border-slate-700 bg-slate-950/80 text-slate-100 hover:bg-slate-800"
+                      >
+                        Start
                       </Button>
-                      <Button size="sm" onClick={() => handleTaskAction(task.id, "Completed")} disabled={task.status === "Completed" || task.status === "Pending"} className="bg-emerald-600 hover:bg-emerald-500">
+                      <Button
+                        size="sm"
+                        onClick={() => handleTaskAction(task.id, "Completed")}
+                        disabled={task.status !== "In Progress"}
+                        className="bg-emerald-600 hover:bg-emerald-500"
+                      >
                         Complete
                       </Button>
                       <Button size="sm" variant="ghost" onClick={() => setSelectedTaskId(task.id)} className="text-slate-200 hover:bg-slate-800">

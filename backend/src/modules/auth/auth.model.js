@@ -32,6 +32,8 @@ const userSchema = new mongoose.Schema(
       type: String,
       enum: ["admin", "worker", "citizen"],
       default: "citizen",
+      trim: true,
+      lowercase: true,
     },
     greenCredits: {
       type: Number,

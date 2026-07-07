@@ -23,7 +23,7 @@ const mapComplaint = (complaint) => ({
 const getDashboardData = async () => {
   const [complaints, workers, tasks] = await Promise.all([
     Complaint.find().sort({ submittedAt: -1 }),
-    User.find({ role: "worker" }).select("_id name role email phone").lean(),
+    User.find({ role: { $regex: /^worker$/i } }).select("_id name role email phone").lean(),
     Task.find().sort({ assignedDate: -1 }),
   ]);
 

@@ -475,6 +475,13 @@ export function CitizenDashboard() {
       setSubmittedComplaint(newComplaint)
       setIsSuccessDialogOpen(true)
       setForm(initialForm)
+      if (typeof window !== "undefined") {
+        window.localStorage.setItem(
+          "complaintCreated",
+          JSON.stringify({ complaintId: newComplaint.id, timestamp: Date.now() }),
+        )
+        window.dispatchEvent(new Event("complaint-created"))
+      }
       setNotice("Complaint submitted successfully. It is pending administrator review.")
     } catch (submitError) {
       setNotice(submitError instanceof Error ? submitError.message : "Unable to submit complaint")

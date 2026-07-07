@@ -17,7 +17,7 @@ const complaintSchema = new mongoose.Schema(
     imageName: { type: String, trim: true, default: "complaint-image" },
     status: {
       type: String,
-      enum: ["Pending", "Under Review", "Approved", "Rejected", "Resolved"],
+      enum: ["Pending", "Assigned", "Under Review", "Approved", "Rejected", "Resolved"],
       default: "Pending",
     },
     creditsAwarded: { type: Number, default: 0, min: 0 },

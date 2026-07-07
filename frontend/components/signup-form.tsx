@@ -63,6 +63,10 @@ export function SignupForm({
       }
 
       setSuccess(payload?.message ?? "Account created")
+      if (typeof window !== "undefined") {
+        window.localStorage.setItem("workerCreatedAt", String(Date.now()))
+        window.dispatchEvent(new Event("worker-created"))
+      }
       router.push("/login")
     } catch (submitError) {
       setError(

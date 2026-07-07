@@ -285,6 +285,9 @@ export function AdminDashboard() {
   const [selectedComplaintId, setSelectedComplaintId] = useState<string | null>(null)
   const [isAssignmentDialogOpen, setIsAssignmentDialogOpen] = useState(false)
   const [complaintForAssignment, setComplaintForAssignment] = useState<Complaint | null>(null)
+  const [isAssignSuccessOpen, setIsAssignSuccessOpen] = useState(false)
+  const [assignSuccessText, setAssignSuccessText] = useState("")
+  const [isBackendConnected, setIsBackendConnected] = useState(true)
 
   useEffect(() => {
     if (typeof window === "undefined") return
@@ -303,18 +306,31 @@ export function AdminDashboard() {
       )
     }
 
+    const refreshDashboardOnComplaintOrWorkerUpdate = (event: StorageEvent | Event) => {
+      if (event instanceof StorageEvent && event.key !== "complaintCreated" && event.key !== "workerCreatedAt") return
+      void loadDashboardData()
+    }
+
     syncComplaintStatus()
     window.addEventListener("storage", syncComplaintStatus)
+    window.addEventListener("storage", refreshDashboardOnComplaintOrWorkerUpdate)
     window.addEventListener("complaint-status-changed", syncComplaintStatus)
+    window.addEventListener("complaint-created", refreshDashboardOnComplaintOrWorkerUpdate)
+    window.addEventListener("worker-created", refreshDashboardOnComplaintOrWorkerUpdate)
     return () => {
       window.removeEventListener("storage", syncComplaintStatus)
+      window.removeEventListener("storage", refreshDashboardOnComplaintOrWorkerUpdate)
       window.removeEventListener("complaint-status-changed", syncComplaintStatus)
+      window.removeEventListener("complaint-created", refreshDashboardOnComplaintOrWorkerUpdate)
+      window.removeEventListener("worker-created", refreshDashboardOnComplaintOrWorkerUpdate)
     }
   }, [])
 
   const persistWorkerTasks = (nextTasks: Task[]) => {
     if (typeof window !== "undefined") {
       window.localStorage.setItem(WORKER_TASKS_STORAGE_KEY, JSON.stringify(nextTasks))
+      window.localStorage.setItem("workerTasksUpdatedAt", String(Date.now()))
+      window.dispatchEvent(new Event("worker-tasks-updated"))
     }
   }
 
@@ -332,11 +348,15 @@ export function AdminDashboard() {
       })
 
       const payload = await response.json()
-      if (!response.ok) return
+      if (!response.ok) {
+        setIsBackendConnected(false)
+        return
+      }
 
       const adminData = payload?.data ?? payload
+      setIsBackendConnected(true)
       const fetchedComplaints = (adminData?.complaints ?? []).map((item: any) => ({
-        id: item?.id ?? item?._id,
+        id: String(item?.id ?? item?._id ?? ""),
         citizenName: item?.citizenName ?? item?.name ?? "Citizen",
         complaintType: item?.complaintType ?? "General",
         description: item?.description ?? "",
@@ -345,7 +365,7 @@ export function AdminDashboard() {
         createdAt: item?.createdAt ? new Date(item.createdAt).toLocaleString() : "Recently received",
         imagePath: item?.imagePath,
         imageName: item?.imageName,
-        userId: item?.userId,
+        userId: String(item?.userId ?? ""),
         name: item?.name,
       }))
 
@@ -367,14 +387,14 @@ export function AdminDashboard() {
       }))
 
       const fetchedTasks = (adminData?.tasks ?? []).map((task: any) => ({
-        id: task?.id ?? task?._id ?? `TSK${Date.now()}`,
+        id: String(task?.id ?? task?._id ?? `TSK${Date.now()}`),
         title: task?.title ?? "Task",
         details: task?.description ?? "",
-        assignedTo: task?.workerId ? mappedWorkers.find((worker: Worker) => worker.id === task?.workerId)?.name ?? "Worker" : "Unassigned",
+        assignedTo: task?.workerId ? mappedWorkers.find((worker: Worker) => worker.id === String(task?.workerId))?.name ?? "Worker" : "Unassigned",
         createdAt: task?.assignedDate ? new Date(task.assignedDate).toLocaleString() : "Just now",
         status: (task?.status as Task["status"]) ?? "In Progress",
-        workerId: task?.workerId,
-        complaintId: task?.complaintId,
+        workerId: String(task?.workerId ?? ""),
+        complaintId: task?.complaintId ? String(task.complaintId) : undefined,
         binId: task?.binId,
         location: task?.location,
         wasteType: task?.wasteType,
@@ -383,7 +403,7 @@ export function AdminDashboard() {
 
       setTasks(fetchedTasks)
     } catch {
-      // Keep the local demo data if the API is unavailable.
+      setIsBackendConnected(false)
     }
   }
 
@@ -474,6 +494,10 @@ export function AdminDashboard() {
 
   const handleComplaintAssignment = async (complaint: Complaint, worker: Worker) => {
     try {
+      if (!isBackendConnected) {
+        throw new Error("Cannot assign tasks while admin dashboard is in demo mode. Connect to the backend first.")
+      }
+
       const authToken = window.localStorage.getItem("citizenAuth")
       const parsedAuth = authToken ? JSON.parse(authToken) as { accessToken?: string } : null
       const accessToken = parsedAuth?.accessToken
@@ -494,28 +518,36 @@ export function AdminDashboard() {
       const payload = await response.json()
       if (!response.ok) throw new Error(payload?.message ?? "Unable to assign complaint")
 
+      const assignedTask = payload?.data?.task ?? payload?.data
       const newTask: Task = {
-        id: payload?.data?.id ?? payload?.data?._id ?? `TSK${Date.now().toString().slice(-4)}`,
-        title: complaint.complaintType,
-        details: complaint.description,
+        id: assignedTask?.id ?? assignedTask?._id ?? `TSK${Date.now().toString().slice(-4)}`,
+        title: assignedTask?.title ?? complaint.complaintType,
+        details: assignedTask?.description ?? complaint.description,
         assignedTo: worker.name,
-        createdAt: "Just now",
-        status: "In Progress",
+        createdAt: assignedTask?.assignedDate
+          ? new Date(assignedTask.assignedDate).toLocaleString()
+          : "Just now",
+        status: assignedTask?.status ?? "Pending",
         workerId: worker.id,
         complaintId: complaint.id,
-        location: complaint.location,
-        priority: "High",
+        location: assignedTask?.location ?? complaint.location,
+        priority: assignedTask?.priority ?? "High",
       }
 
       setTasks((previous) => {
         const nextTasks = [newTask, ...previous]
         persistWorkerTasks(nextTasks)
+        if (typeof window !== "undefined") {
+          window.dispatchEvent(new Event("worker-tasks-updated"))
+        }
         return nextTasks
       })
       setWorkers((previous) => previous.map((item) => (item.id === worker.id ? { ...item, status: "Busy" } : item)))
       setComplaints((previous) => previous.map((item) => (item.id === complaint.id ? { ...item, status: "Assigned" } : item)))
       setSelectedComplaintId(complaint.id)
       setAssignMessage(`Complaint ${complaint.id} assigned to ${worker.name}.`)
+      setAssignSuccessText(`Complaint ${complaint.id} assigned to ${worker.name} successfully.`)
+      setIsAssignSuccessOpen(true)
       const newNotification: NotificationItem = {
         id: `N${Date.now()}`,
         title: `Task assigned to ${worker.name}`,
@@ -582,7 +614,14 @@ export function AdminDashboard() {
         priority: payload?.data?.priority,
       }
 
-      setTasks((previous) => [newTask, ...previous])
+      setTasks((previous) => {
+        const nextTasks = [newTask, ...previous]
+        persistWorkerTasks(nextTasks)
+        if (typeof window !== "undefined") {
+          window.dispatchEvent(new Event("worker-tasks-updated"))
+        }
+        return nextTasks
+      })
       setWorkers((previous) =>
         previous.map((item) =>
           item.id === assignForm.workerId ? { ...item, status: "Busy" } : item,
@@ -600,6 +639,8 @@ export function AdminDashboard() {
       setNotifications((previous) => [newNotification, ...previous].slice(0, 6))
       setAssignForm(initialAssignForm)
       setAssignMessage("Task assigned successfully and worker status updated.")
+      setAssignSuccessText(`Task assigned to ${worker?.name ?? "worker"} successfully.`)
+      setIsAssignSuccessOpen(true)
     } catch (error) {
       setAssignMessage(error instanceof Error ? error.message : "Unable to assign task")
     } finally {
@@ -654,6 +695,20 @@ export function AdminDashboard() {
             <Button variant="outline" onClick={() => setIsAssignmentDialogOpen(false)}>
               Cancel
             </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      <Dialog open={isAssignSuccessOpen} onOpenChange={setIsAssignSuccessOpen}>
+        <DialogContent className="border border-cyan-400/20 bg-slate-900 text-slate-50 sm:max-w-md">
+          <DialogHeader>
+            <DialogTitle className="text-xl text-white">Assignment complete</DialogTitle>
+            <DialogDescription className="text-sm text-slate-400">
+              {assignSuccessText}
+            </DialogDescription>
+          </DialogHeader>
+          <DialogFooter>
+            <Button onClick={() => setIsAssignSuccessOpen(false)}>Close</Button>
           </DialogFooter>
         </DialogContent>
       </Dialog>
