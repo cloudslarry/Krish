@@ -855,16 +855,7 @@ export function CitizenDashboard() {
                       </div>
                     ) : null}
                     <div className="mt-3 flex flex-wrap gap-2">
-                      {(["Pending", "Under Review", "Approved", "Rejected", "Resolved", "Complete"] as Complaint["status"][]).map((status) => (
-                        <Button
-                          key={status}
-                          size="sm"
-                          variant={complaint.status === status ? "default" : "outline"}
-                          onClick={() => handleComplaintStatus(complaint.id, status)}
-                        >
-                          {status}
-                        </Button>
-                      ))}
+                      {/* Status buttons removed from citizen page */}
                     </div>
                   </div>
                 ))
