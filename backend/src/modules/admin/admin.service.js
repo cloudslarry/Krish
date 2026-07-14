@@ -1,6 +1,7 @@
 import ApiError from "../../common/utils/api-error.js";
 import User from "../auth/auth.model.js";
 import { Complaint } from "../citizen/citizen.model.js";
+import Bin from "../bins/bin.model.js";
 import * as citizenService from "../citizen/citizen.service.js";
 import { Task } from "../worker/worker.model.js";
 
@@ -21,21 +22,24 @@ const mapComplaint = (complaint) => ({
 });
 
 const getDashboardData = async () => {
-  const [complaints, workers, tasks] = await Promise.all([
+  const [complaints, workers, tasks, bins] = await Promise.all([
     Complaint.find().sort({ submittedAt: -1 }),
     User.find({ role: { $regex: /^worker$/i } }).select("_id name role email phone").lean(),
     Task.find().sort({ assignedDate: -1 }),
+    Bin.find().sort({ binId: 1 }).lean(),
   ]);
 
   const openComplaints = complaints.filter((item) => item.status !== "Resolved").length;
 
   return {
     counts: {
+      totalBins: bins.length,
       totalComplaints: complaints.length,
       openComplaints,
       resolvedComplaints: complaints.length - openComplaints,
       activeWorkers: workers.length,
     },
+    bins,
     complaints: complaints.map(mapComplaint),
     workers,
     tasks: tasks.map((task) => ({

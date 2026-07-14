@@ -13,8 +13,9 @@ const complaintSchema = new mongoose.Schema(
     location: { type: String, required: true, trim: true },
     description: { type: String, required: true, trim: true },
     complaintType: { type: String, trim: true, default: "General" },
-    imagePath: { type: String, required: true },
+    imagePath: { type: String, default: "" },
     imageName: { type: String, trim: true, default: "complaint-image" },
+    fileType: { type: String, trim: true, default: "" },
     status: {
       type: String,
       enum: ["Pending", "Assigned", "Under Review", "Approved", "Rejected", "Resolved"],

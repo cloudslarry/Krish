@@ -5,6 +5,8 @@ class RegisterDto extends BaseDto {
   static schema = Joi.object({
     name: Joi.string().trim().min(2).max(50).required(),
     email: Joi.string().email().lowercase().required(),
+    contact: Joi.string().trim().allow(""),
+    accountId: Joi.string().trim().allow(""),
     password: Joi.string()
       .min(8)
       .pattern(/(?=.*[A-Z])(?=.*\d)/)

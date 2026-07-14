@@ -1,8 +1,5 @@
-import multer from "multer";
 import ApiResponse from "../../common/utils/api-response.js";
 import * as citizenService from "./citizen.service.js";
-
-const upload = multer({ storage: multer.memoryStorage() });
 
 const getProfile = async (req, res, next) => {
   try {
@@ -24,7 +21,6 @@ const getDashboard = async (req, res, next) => {
 
 const submitComplaint = async (req, res, next) => {
   try {
-    const file = req.file;
     const payload = {
       userId: req.user.id,
       name: req.body.name,
@@ -32,12 +28,35 @@ const submitComplaint = async (req, res, next) => {
       location: req.body.location,
       description: req.body.description,
       complaintType: req.body.complaintType,
-      imageBuffer: file?.buffer,
-      imageName: file?.originalname ?? req.body.imageName,
+      imageData: req.body.imageData,
+      imageName: req.body.imageName,
+      fileType: req.body.fileType,
     };
 
     const complaint = await citizenService.createComplaint(payload);
     ApiResponse.created(res, "Complaint submitted successfully", complaint);
+  } catch (error) {
+    next(error);
+  }
+};
+
+const listComplaints = async (req, res, next) => {
+  try {
+    const complaints = await citizenService.listComplaints({
+      userId: req.user.role === "admin" ? undefined : req.user.id,
+    });
+    ApiResponse.ok(res, "Complaints loaded", complaints);
+  } catch (error) {
+    next(error);
+  }
+};
+
+const deleteComplaint = async (req, res, next) => {
+  try {
+    const result = await citizenService.deleteComplaint({
+      complaintId: req.params.id,
+    });
+    ApiResponse.ok(res, "Complaint deleted", result);
   } catch (error) {
     next(error);
   }
@@ -77,4 +96,13 @@ const getRewards = async (req, res, next) => {
   }
 };
 
-export { getProfile, getDashboard, submitComplaint, updateComplaintStatus, redeemReward, getRewards, upload };
+export {
+  getProfile,
+  getDashboard,
+  submitComplaint,
+  listComplaints,
+  deleteComplaint,
+  updateComplaintStatus,
+  redeemReward,
+  getRewards,
+};

@@ -17,6 +17,13 @@ const userSchema = new mongoose.Schema(
       lowercase: true,
       trim: true,
     },
+    accountId: {
+      type: String,
+      unique: true,
+      sparse: true,
+      uppercase: true,
+      trim: true,
+    },
     phone: {
       type: String,
       trim: true,

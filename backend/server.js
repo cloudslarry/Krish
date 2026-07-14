@@ -1,7 +1,7 @@
 import "dotenv/config"
 import app from "./src/app.js"
 import connectDB from "./src/common/config/db.js"
-import { seedDefaultData } from "./src/modules/citizen/citizen.service.js"
+import { seedDefaultData } from "./src/common/bootstrap/seed-default-data.js"
 
 const PORT = process.env.PORT || 5000
 

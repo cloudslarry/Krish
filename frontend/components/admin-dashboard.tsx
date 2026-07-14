@@ -1,66 +1,12 @@
 "use client"
 
-import { useEffect, useMemo, useState, type FormEvent } from "react"
+import { useEffect, useMemo, useState } from "react"
 import { useRouter } from "next/navigation"
-import {
-  AlertTriangle,
-  Bell,
-  Building2,
-  Filter,
-  LogOut,
-  RefreshCw,
-  Search,
-  Sparkles,
-  Users,
-} from "lucide-react"
-
 import { backendUrl } from "@/lib/backend"
-import { Badge } from "@/components/ui/badge"
-import { Button } from "@/components/ui/button"
-import {
-  Card,
-  CardContent,
-  CardDescription,
-  CardHeader,
-  CardTitle,
-} from "@/components/ui/card"
-import {
-  Dialog,
-  DialogContent,
-  DialogDescription,
-  DialogFooter,
-  DialogHeader,
-  DialogTitle,
-} from "@/components/ui/dialog"
-import { Input } from "@/components/ui/input"
-import { Progress } from "@/components/ui/progress"
-import { cn } from "@/lib/utils"
 
-type AuthUser = {
-  _id?: string
-  id?: string
-  name?: string
-  email?: string
-  role?: string
-}
+// ─── Types ────────────────────────────────────────────────────────────────────
 
-type BinStatus = "Empty" | "Medium" | "Nearly Full" | "Critical"
-
-type ComplaintStatus = "Pending" | "Assigned" | "In Progress" | "Resolved"
-
-type WorkerStatus = "Active" | "Busy" | "Offline"
-
-type Bin = {
-  id: string
-  area: string
-  location: string
-  wasteType: "Wet" | "Dry" | "Hazardous" | "Recyclable" | "Mixed"
-  fillLevel: number
-  status: BinStatus
-  lastUpdated: string
-  assignedWorker?: string
-  position: string
-}
+type AuthUser = { _id?: string; id?: string; name?: string; email?: string; role?: string }
 
 type Complaint = {
   id: string
@@ -68,10 +14,9 @@ type Complaint = {
   complaintType: string
   description: string
   location: string
-  status: ComplaintStatus
+  status: "Pending" | "Assigned" | "In Progress" | "Resolved"
   createdAt: string
   imagePath?: string
-  imageName?: string
   userId?: string
   name?: string
 }
@@ -79,1001 +24,526 @@ type Complaint = {
 type Worker = {
   id: string
   name: string
-  status: WorkerStatus
-  completedTasks: number
-  target: number
+  email: string
+  status: "Active" | "Busy" | "Offline"
 }
 
-type Task = {
-  id: string
-  title: string
-  details: string
-  assignedTo: string
-  createdAt: string
-  status: "Open" | "In Progress" | "Completed"
-  workerId?: string
-  complaintId?: string
-  binId?: string
-  location?: string
-  wasteType?: string
-  priority?: string
-}
-
-type NotificationItem = {
-  id: string
-  title: string
-  detail: string
-  tone: "positive" | "warning" | "neutral"
-}
-
-type AssignFormState = {
-  title: string
-  details: string
-  workerId: string
+const STATUS_STYLES: Record<string, string> = {
+  Pending: "bg-amber-500/15 text-amber-300 border-amber-500/25",
+  Assigned: "bg-blue-500/15 text-blue-300 border-blue-500/25",
+  "In Progress": "bg-violet-500/15 text-violet-300 border-violet-500/25",
+  Resolved: "bg-emerald-500/15 text-emerald-300 border-emerald-500/25",
 }
 
 const STORAGE_AUTH_KEY = "citizenAuth"
-const WORKER_TASKS_STORAGE_KEY = "workerPortalTasks"
-const initialBins: Bin[] = [
-  {
-    id: "BIN001",
-    area: "Sector 7",
-    location: "Near Park Gate",
-    wasteType: "Wet",
-    fillLevel: 100,
-    status: "Critical",
-    lastUpdated: "2 min ago",
-    assignedWorker: "Keval",
-    position: "18%",
-  },
-  {
-    id: "BIN002",
-    area: "Sector 4",
-    location: "Main Market",
-    wasteType: "Dry",
-    fillLevel: 64,
-    status: "Medium",
-    lastUpdated: "8 min ago",
-    assignedWorker: "Mina",
-    position: "54%",
-  },
-  {
-    id: "BIN003",
-    area: "Sector 9",
-    location: "School Road",
-    wasteType: "Hazardous",
-    fillLevel: 92,
-    status: "Nearly Full",
-    lastUpdated: "4 min ago",
-    assignedWorker: "Asha",
-    position: "74%",
-  },
-  {
-    id: "BIN004",
-    area: "Sector 2",
-    location: "Community Center",
-    wasteType: "Recyclable",
-    fillLevel: 24,
-    status: "Empty",
-    lastUpdated: "12 min ago",
-    assignedWorker: undefined,
-    position: "34%",
-  },
-  {
-    id: "BIN005",
-    area: "Sector 11",
-    location: "Bus Depot",
-    wasteType: "Mixed",
-    fillLevel: 81,
-    status: "Nearly Full",
-    lastUpdated: "6 min ago",
-    assignedWorker: "Rohan",
-    position: "82%",
-  },
-]
 
-const initialComplaints: Complaint[] = [
-  {
-    id: "CMP001",
-    citizenName: "Nisha Rao",
-    complaintType: "Overflowing Bin",
-    description: "Hazardous waste overflowed near the school entrance after peak hours.",
-    location: "Sector 9",
-    status: "Pending",
-    createdAt: "4 min ago",
-  },
-  {
-    id: "CMP002",
-    citizenName: "Arjun Mehta",
-    complaintType: "Missed Pickup",
-    description: "The scheduled pickup did not arrive for the wet waste collection.",
-    location: "Sector 4",
-    status: "Assigned",
-    createdAt: "18 min ago",
-  },
-]
-
-const initialWorkers: Worker[] = [
-  { id: "WKR001", name: "Keval", status: "Active", completedTasks: 12, target: 20 },
-  { id: "WKR002", name: "Mina", status: "Busy", completedTasks: 9, target: 16 },
-  { id: "WKR003", name: "Asha", status: "Offline", completedTasks: 6, target: 14 },
-]
-
-const initialTasks: Task[] = [
-  {
-    id: "TSK001",
-    title: "Emergency cleanup",
-    details: "Critical bin at Sector 7 needs immediate collection.",
-    assignedTo: "Keval",
-    createdAt: "10 min ago",
-    status: "In Progress",
-  },
-]
-
-const initialNotifications: NotificationItem[] = [
-  {
-    id: "N001",
-    title: "BIN001 reached 100%",
-    detail: "Critical bin escalation was triggered at Sector 7.",
-    tone: "warning",
-  },
-  {
-    id: "N002",
-    title: "Complaint received",
-    detail: "A new citizen complaint was logged for Sector 9.",
-    tone: "neutral",
-  },
-]
-
-const initialAssignForm: AssignFormState = {
-  title: "",
-  details: "",
-  workerId: "WKR001",
-}
-
-const getStatusStyles = (status: BinStatus | ComplaintStatus | WorkerStatus) => {
-  switch (status) {
-    case "Critical":
-    case "Pending":
-    case "Offline":
-      return "border-rose-400/30 bg-rose-500/10 text-rose-300"
-    case "Nearly Full":
-    case "Assigned":
-    case "Busy":
-      return "border-amber-400/30 bg-amber-500/10 text-amber-300"
-    case "Medium":
-    case "In Progress":
-    case "Active":
-      return "border-emerald-400/30 bg-emerald-500/10 text-emerald-300"
-    case "Empty":
-    case "Resolved":
-      return "border-sky-400/30 bg-sky-500/10 text-sky-300"
-    default:
-      return "border-slate-400/30 bg-slate-500/10 text-slate-300"
-  }
-}
-
-const getBinMarkerColor = (status: BinStatus) => {
-  switch (status) {
-    case "Empty":
-      return "bg-emerald-500"
-    case "Medium":
-      return "bg-amber-400"
-    case "Nearly Full":
-      return "bg-orange-500"
-    case "Critical":
-      return "bg-rose-500"
-    default:
-      return "bg-slate-500"
-  }
-}
+// ─── Component ────────────────────────────────────────────────────────────────
 
 export function AdminDashboard() {
   const router = useRouter()
   const [user, setUser] = useState<AuthUser | null>(null)
-  const [bins, setBins] = useState<Bin[]>(initialBins)
-  const [complaints, setComplaints] = useState<Complaint[]>(initialComplaints)
-  const [workers, setWorkers] = useState<Worker[]>(initialWorkers)
-  const [tasks, setTasks] = useState<Task[]>(initialTasks)
-  const [notifications, setNotifications] = useState<NotificationItem[]>(initialNotifications)
-  const [search, setSearch] = useState("")
-  const [selectedBinId, setSelectedBinId] = useState(initialBins[0].id)
-  const [assignForm, setAssignForm] = useState<AssignFormState>(initialAssignForm)
-  const [assignMessage, setAssignMessage] = useState<string | null>(null)
   const [isHydrated, setIsHydrated] = useState(false)
-  const [isSubmittingTask, setIsSubmittingTask] = useState(false)
-  const [selectedComplaintId, setSelectedComplaintId] = useState<string | null>(null)
-  const [isAssignmentDialogOpen, setIsAssignmentDialogOpen] = useState(false)
-  const [complaintForAssignment, setComplaintForAssignment] = useState<Complaint | null>(null)
-  const [isAssignSuccessOpen, setIsAssignSuccessOpen] = useState(false)
-  const [assignSuccessText, setAssignSuccessText] = useState("")
-  const [isBackendConnected, setIsBackendConnected] = useState(true)
+  const [complaints, setComplaints] = useState<Complaint[]>([])
+  const [workers, setWorkers] = useState<Worker[]>([])
+  const [isFetching, setIsFetching] = useState(false)
+  const [search, setSearch] = useState("")
+  const [filterStatus, setFilterStatus] = useState<string>("all")
+  const [activeTab, setActiveTab] = useState<"complaints" | "workers" | "stats">("complaints")
+  const [notice, setNotice] = useState<{ text: string; type: "success" | "error" } | null>(null)
 
+  // Assign modal
+  const [assigningComplaint, setAssigningComplaint] = useState<Complaint | null>(null)
+  const [selectedWorker, setSelectedWorker] = useState("")
+  const [isAssigning, setIsAssigning] = useState(false)
+
+  // Update status modal
+  const [updatingComplaint, setUpdatingComplaint] = useState<Complaint | null>(null)
+  const [newStatus, setNewStatus] = useState<string>("")
+  const [isUpdating, setIsUpdating] = useState(false)
+
+  // ── Auth ──
   useEffect(() => {
     if (typeof window === "undefined") return
-
-    const syncComplaintStatus = () => {
-      const storedEntries = window.localStorage.getItem("complaintStatusSync")
-      if (!storedEntries) return
-
-      const entries = JSON.parse(storedEntries) as Array<{ complaintId: string; adminStatus: string; citizenStatus: string }>
-      setComplaints((previous) =>
-        previous.map((complaint) => {
-          const matchedEntry = entries.find((entry) => entry.complaintId === complaint.id)
-          if (!matchedEntry) return complaint
-          return { ...complaint, status: matchedEntry.adminStatus as ComplaintStatus }
-        }),
-      )
-    }
-
-    const refreshDashboardOnComplaintOrWorkerUpdate = (event: StorageEvent | Event) => {
-      if (event instanceof StorageEvent && event.key !== "complaintCreated" && event.key !== "workerCreatedAt") return
-      void loadDashboardData()
-    }
-
-    syncComplaintStatus()
-    window.addEventListener("storage", syncComplaintStatus)
-    window.addEventListener("storage", refreshDashboardOnComplaintOrWorkerUpdate)
-    window.addEventListener("complaint-status-changed", syncComplaintStatus)
-    window.addEventListener("complaint-created", refreshDashboardOnComplaintOrWorkerUpdate)
-    window.addEventListener("worker-created", refreshDashboardOnComplaintOrWorkerUpdate)
-    return () => {
-      window.removeEventListener("storage", syncComplaintStatus)
-      window.removeEventListener("storage", refreshDashboardOnComplaintOrWorkerUpdate)
-      window.removeEventListener("complaint-status-changed", syncComplaintStatus)
-      window.removeEventListener("complaint-created", refreshDashboardOnComplaintOrWorkerUpdate)
-      window.removeEventListener("worker-created", refreshDashboardOnComplaintOrWorkerUpdate)
-    }
-  }, [])
-
-  const persistWorkerTasks = (nextTasks: Task[]) => {
-    if (typeof window !== "undefined") {
-      window.localStorage.setItem(WORKER_TASKS_STORAGE_KEY, JSON.stringify(nextTasks))
-      window.localStorage.setItem("workerTasksUpdatedAt", String(Date.now()))
-      window.dispatchEvent(new Event("worker-tasks-updated"))
-    }
-  }
-
-  const loadDashboardData = async (token?: string) => {
-    try {
-      const authToken = token ?? window.localStorage.getItem("citizenAuth")
-      const parsedAuth = authToken ? JSON.parse(authToken) as { accessToken?: string } : null
-      const accessToken = parsedAuth?.accessToken
-      if (!accessToken) return
-
-      const response = await fetch(`${backendUrl}/api/admin/dashboard`, {
-        headers: {
-          Authorization: `Bearer ${accessToken}`,
-        },
-      })
-
-      const payload = await response.json()
-      if (!response.ok) {
-        setIsBackendConnected(false)
-        return
-      }
-
-      const adminData = payload?.data ?? payload
-      setIsBackendConnected(true)
-      const fetchedComplaints = (adminData?.complaints ?? []).map((item: any) => ({
-        id: String(item?.id ?? item?._id ?? ""),
-        citizenName: item?.citizenName ?? item?.name ?? "Citizen",
-        complaintType: item?.complaintType ?? "General",
-        description: item?.description ?? "",
-        location: item?.location ?? "",
-        status: (item?.status as ComplaintStatus) ?? "Pending",
-        createdAt: item?.createdAt ? new Date(item.createdAt).toLocaleString() : "Recently received",
-        imagePath: item?.imagePath,
-        imageName: item?.imageName,
-        userId: String(item?.userId ?? ""),
-        name: item?.name,
-      }))
-
-      const mappedWorkers = (adminData?.workers ?? []).map((worker: any) => ({
-        id: worker?._id ?? worker?.id ?? "WKR000",
-        name: worker?.name ?? "Worker",
-        status: "Active",
-        completedTasks: 0,
-        target: 20,
-      }))
-
-      setComplaints(fetchedComplaints)
-      setWorkers(mappedWorkers)
-      setAssignForm((previous) => ({
-        ...previous,
-        workerId: previous.workerId && mappedWorkers.some((worker: Worker) => worker.id === previous.workerId)
-          ? previous.workerId
-          : mappedWorkers[0]?.id ?? previous.workerId,
-      }))
-
-      const fetchedTasks = (adminData?.tasks ?? []).map((task: any) => ({
-        id: String(task?.id ?? task?._id ?? `TSK${Date.now()}`),
-        title: task?.title ?? "Task",
-        details: task?.description ?? "",
-        assignedTo: task?.workerId ? mappedWorkers.find((worker: Worker) => worker.id === String(task?.workerId))?.name ?? "Worker" : "Unassigned",
-        createdAt: task?.assignedDate ? new Date(task.assignedDate).toLocaleString() : "Just now",
-        status: (task?.status as Task["status"]) ?? "In Progress",
-        workerId: String(task?.workerId ?? ""),
-        complaintId: task?.complaintId ? String(task.complaintId) : undefined,
-        binId: task?.binId,
-        location: task?.location,
-        wasteType: task?.wasteType,
-        priority: task?.priority,
-      }))
-
-      setTasks(fetchedTasks)
-    } catch {
-      setIsBackendConnected(false)
-    }
-  }
-
-  useEffect(() => {
-    if (typeof window === "undefined") return
-
-    const storedAuth = window.localStorage.getItem(STORAGE_AUTH_KEY)
-    if (!storedAuth) {
+    const stored = window.localStorage.getItem(STORAGE_AUTH_KEY)
+    if (!stored) { router.replace("/login"); return }
+    const parsed = JSON.parse(stored) as { user?: AuthUser }
+    const authUser = parsed.user ?? null
+    if (!authUser || authUser.role?.toLowerCase() !== "admin") {
       router.replace("/login")
       return
     }
-
-    const parsedAuth = JSON.parse(storedAuth) as { user?: AuthUser }
-    const authUser = parsedAuth.user ?? null
-    if (authUser?.role?.toLowerCase() !== "admin") {
-      router.replace("/login")
-      return
-    }
-
     setUser(authUser)
     setIsHydrated(true)
-    void loadDashboardData(storedAuth)
   }, [router])
 
-  const adminId = useMemo(() => {
-    const rawId = user?._id ?? user?.id ?? ""
-    return rawId ? `ADM${String(rawId).slice(-3).toUpperCase()}` : "ADM001"
-  }, [user])
+  useEffect(() => {
+    if (!isHydrated) return
+    fetchAll()
+  }, [isHydrated])
 
-  const filteredBins = useMemo(() => {
-    const query = search.trim().toLowerCase()
-    return bins.filter((bin) => {
-      if (!query) return true
-      return (
-        bin.id.toLowerCase().includes(query) ||
-        bin.area.toLowerCase().includes(query) ||
-        bin.location.toLowerCase().includes(query) ||
-        bin.assignedWorker?.toLowerCase().includes(query)
+  const getToken = () => {
+    const stored = window.localStorage.getItem(STORAGE_AUTH_KEY)
+    return stored ? (JSON.parse(stored) as { accessToken?: string }).accessToken ?? null : null
+  }
+
+  const fetchAll = async () => {
+    setIsFetching(true)
+    const token = getToken()
+    if (!token) { setIsFetching(false); return }
+    await Promise.all([fetchComplaints(token), fetchWorkers(token)])
+    setIsFetching(false)
+  }
+
+  const fetchComplaints = async (token: string) => {
+    try {
+      const res = await fetch(`${backendUrl}/api/admin/complaints`, {
+        headers: { Authorization: `Bearer ${token}` },
+      })
+      if (!res.ok) return
+      const payload = await res.json()
+      const list: Complaint[] = (payload?.data ?? payload ?? []).map((c: Record<string, unknown>) => ({
+        id: (c._id ?? c.id ?? "") as string,
+        citizenName: (c.name ?? c.citizenName ?? "Unknown") as string,
+        complaintType: (c.complaintType ?? "General") as string,
+        description: (c.description ?? "") as string,
+        location: (c.location ?? "") as string,
+        status: (c.status ?? "Pending") as Complaint["status"],
+        createdAt: (c.submittedAt ?? c.createdAt ?? new Date().toISOString()) as string,
+        imagePath: (c.imagePath ?? "") as string,
+        userId: (c.userId ?? "") as string,
+      }))
+      setComplaints(list)
+    } catch { /* ignore */ }
+  }
+
+  const fetchWorkers = async (token: string) => {
+    try {
+      const res = await fetch(`${backendUrl}/api/workers`, {
+        headers: { Authorization: `Bearer ${token}` },
+      })
+      if (!res.ok) return
+      const payload = await res.json()
+      const list: Worker[] = (payload?.data ?? payload ?? []).map((w: Record<string, unknown>) => ({
+        id: (w._id ?? w.id ?? "") as string,
+        name: (w.name ?? "Worker") as string,
+        email: (w.email ?? "") as string,
+        status: "Active" as const,
+      }))
+      setWorkers(list)
+    } catch { /* ignore */ }
+  }
+
+  const handleUpdateStatus = async () => {
+    if (!updatingComplaint || !newStatus) return
+    setIsUpdating(true)
+    try {
+      const token = getToken()
+      const res = await fetch(`${backendUrl}/api/admin/complaints/${updatingComplaint.id}/status`, {
+        method: "PATCH",
+        headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" },
+        body: JSON.stringify({ status: newStatus }),
+      })
+      if (!res.ok) {
+        const p = await res.json()
+        throw new Error(p?.message ?? "Update failed")
+      }
+      setComplaints((prev) =>
+        prev.map((c) => c.id === updatingComplaint.id ? { ...c, status: newStatus as Complaint["status"] } : c)
       )
-    })
-  }, [bins, search])
+      setNotice({ text: `Status updated to ${newStatus}.`, type: "success" })
+      setUpdatingComplaint(null)
+    } catch (err) {
+      setNotice({ text: err instanceof Error ? err.message : "Update failed.", type: "error" })
+    } finally {
+      setIsUpdating(false)
+    }
+  }
 
-  const filteredComplaints = useMemo(() => {
-    const query = search.trim().toLowerCase()
-    return complaints.filter((complaint) => {
-      if (!query) return true
-      return (
-        complaint.id.toLowerCase().includes(query) ||
-        complaint.citizenName.toLowerCase().includes(query) ||
-        complaint.location.toLowerCase().includes(query) ||
-        complaint.complaintType.toLowerCase().includes(query)
+  const handleAssign = async () => {
+    if (!assigningComplaint || !selectedWorker) return
+    setIsAssigning(true)
+    try {
+      const token = getToken()
+      const res = await fetch(`${backendUrl}/api/complaints/${assigningComplaint.id}/assign`, {
+        method: "POST",
+        headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" },
+        body: JSON.stringify({ workerId: selectedWorker }),
+      })
+      if (!res.ok) {
+        const p = await res.json()
+        throw new Error(p?.message ?? "Assignment failed")
+      }
+      const workerName = workers.find((w) => w.id === selectedWorker)?.name ?? "Worker"
+      setComplaints((prev) =>
+        prev.map((c) => c.id === assigningComplaint.id ? { ...c, status: "Assigned" as const } : c)
       )
-    })
-  }, [complaints, search])
-
-  const filteredWorkers = useMemo(() => {
-    const query = search.trim().toLowerCase()
-    return workers.filter((worker) => {
-      if (!query) return true
-      return (
-        worker.id.toLowerCase().includes(query) ||
-        worker.name.toLowerCase().includes(query)
-      )
-    })
-  }, [workers, search])
-
-  const totalBins = bins.length
-  const openComplaints = complaints.filter((item) => item.status !== "Resolved").length
-  const activeWorkers = workers.filter((worker) => worker.status === "Active").length
-  const criticalBins = bins.filter((bin) => bin.fillLevel >= 90).length
-  const selectedBin = filteredBins.find((bin) => bin.id === selectedBinId) ?? filteredBins[0] ?? bins[0]
-
-  const handleResetDemo = () => {
-    setBins(initialBins)
-    setTasks(initialTasks)
-    setNotifications(initialNotifications)
-    setAssignForm(initialAssignForm)
-    setSelectedBinId(initialBins[0].id)
-    setAssignMessage("Refreshing admin data from the server.")
-    void loadDashboardData()
+      setNotice({ text: `Assigned to ${workerName} successfully.`, type: "success" })
+      setAssigningComplaint(null)
+      setSelectedWorker("")
+    } catch (err) {
+      setNotice({ text: err instanceof Error ? err.message : "Assignment failed.", type: "error" })
+    } finally {
+      setIsAssigning(false)
+    }
   }
 
   const handleLogout = () => {
     window.localStorage.removeItem(STORAGE_AUTH_KEY)
-    setUser(null)
-    router.replace("/login")
+    router.push("/login")
   }
 
-  const handleComplaintAssignment = async (complaint: Complaint, worker: Worker) => {
-    try {
-      if (!isBackendConnected) {
-        throw new Error("Cannot assign tasks while admin dashboard is in demo mode. Connect to the backend first.")
-      }
-
-      const authToken = window.localStorage.getItem("citizenAuth")
-      const parsedAuth = authToken ? JSON.parse(authToken) as { accessToken?: string } : null
-      const accessToken = parsedAuth?.accessToken
-      if (!accessToken) throw new Error("Missing auth token")
-
-      const response = await fetch(`${backendUrl}/api/worker/complaints/assign`, {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          Authorization: `Bearer ${accessToken}`,
-        },
-        body: JSON.stringify({
-          complaintId: complaint.id,
-          workerId: worker.id,
-        }),
+  // ── Derived ──
+  const filteredComplaints = useMemo(() => {
+    return complaints
+      .filter((c) => filterStatus === "all" || c.status === filterStatus)
+      .filter((c) => {
+        if (!search.trim()) return true
+        const q = search.toLowerCase()
+        return (
+          c.description.toLowerCase().includes(q) ||
+          c.location.toLowerCase().includes(q) ||
+          c.citizenName.toLowerCase().includes(q)
+        )
       })
+  }, [complaints, filterStatus, search])
 
-      const payload = await response.json()
-      if (!response.ok) throw new Error(payload?.message ?? "Unable to assign complaint")
-
-      const assignedTask = payload?.data?.task ?? payload?.data
-      const newTask: Task = {
-        id: assignedTask?.id ?? assignedTask?._id ?? `TSK${Date.now().toString().slice(-4)}`,
-        title: assignedTask?.title ?? complaint.complaintType,
-        details: assignedTask?.description ?? complaint.description,
-        assignedTo: worker.name,
-        createdAt: assignedTask?.assignedDate
-          ? new Date(assignedTask.assignedDate).toLocaleString()
-          : "Just now",
-        status: assignedTask?.status ?? "Pending",
-        workerId: worker.id,
-        complaintId: complaint.id,
-        location: assignedTask?.location ?? complaint.location,
-        priority: assignedTask?.priority ?? "High",
-      }
-
-      setTasks((previous) => {
-        const nextTasks = [newTask, ...previous]
-        persistWorkerTasks(nextTasks)
-        if (typeof window !== "undefined") {
-          window.dispatchEvent(new Event("worker-tasks-updated"))
-        }
-        return nextTasks
-      })
-      setWorkers((previous) => previous.map((item) => (item.id === worker.id ? { ...item, status: "Busy" } : item)))
-      setComplaints((previous) => previous.map((item) => (item.id === complaint.id ? { ...item, status: "Assigned" } : item)))
-      setSelectedComplaintId(complaint.id)
-      setAssignMessage(`Complaint ${complaint.id} assigned to ${worker.name}.`)
-      setAssignSuccessText(`Complaint ${complaint.id} assigned to ${worker.name} successfully.`)
-      setIsAssignSuccessOpen(true)
-      const newNotification: NotificationItem = {
-        id: `N${Date.now()}`,
-        title: `Task assigned to ${worker.name}`,
-        detail: `${complaint.complaintType} is now visible in the worker portal.`,
-        tone: "positive",
-      }
-      setNotifications((previous) => [newNotification, ...previous].slice(0, 6))
-    } catch (error) {
-      setAssignMessage(error instanceof Error ? error.message : "Unable to assign complaint")
-    } finally {
-      setIsAssignmentDialogOpen(false)
-      setComplaintForAssignment(null)
-    }
-  }
-
-  const handleAssignTask = async (event: FormEvent<HTMLFormElement>) => {
-    event.preventDefault()
-    if (!assignForm.title.trim() || !assignForm.details.trim()) {
-      setAssignMessage("Please fill in the task title and details.")
-      return
-    }
-
-    setIsSubmittingTask(true)
-    const worker = workers.find((item) => item.id === assignForm.workerId)
-
-    try {
-      const authToken = window.localStorage.getItem("citizenAuth")
-      const parsedAuth = authToken ? JSON.parse(authToken) as { accessToken?: string } : null
-      const accessToken = parsedAuth?.accessToken
-      if (!accessToken) throw new Error("Missing auth token")
-
-      const response = await fetch(`${backendUrl}/api/worker/tasks`, {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          Authorization: `Bearer ${accessToken}`,
-        },
-        body: JSON.stringify({
-          title: assignForm.title.trim(),
-          description: assignForm.details.trim(),
-          workerId: assignForm.workerId,
-          binId: selectedBin?.id ?? "",
-          location: selectedBin?.location ?? "",
-          wasteType: selectedBin?.wasteType ?? "General",
-          priority: "High",
-        }),
-      })
-
-      const payload = await response.json()
-      if (!response.ok) throw new Error(payload?.message ?? "Task assignment failed")
-
-      const newTask: Task = {
-        id: payload?.data?.id ?? payload?.data?._id ?? `TSK${Date.now().toString().slice(-4)}`,
-        title: payload?.data?.title ?? assignForm.title.trim(),
-        details: payload?.data?.description ?? assignForm.details.trim(),
-        assignedTo: worker?.name ?? "Unassigned",
-        createdAt: "Just now",
-        status: "In Progress",
-        workerId: payload?.data?.workerId,
-        complaintId: payload?.data?.complaintId,
-        binId: payload?.data?.binId,
-        location: payload?.data?.location,
-        wasteType: payload?.data?.wasteType,
-        priority: payload?.data?.priority,
-      }
-
-      setTasks((previous) => {
-        const nextTasks = [newTask, ...previous]
-        persistWorkerTasks(nextTasks)
-        if (typeof window !== "undefined") {
-          window.dispatchEvent(new Event("worker-tasks-updated"))
-        }
-        return nextTasks
-      })
-      setWorkers((previous) =>
-        previous.map((item) =>
-          item.id === assignForm.workerId ? { ...item, status: "Busy" } : item,
-        ),
-      )
-      setComplaints((previous) =>
-        previous.map((item) => (item.status === "Pending" ? { ...item, status: "Assigned" } : item)),
-      )
-      const newNotification: NotificationItem = {
-        id: `N${Date.now()}`,
-        title: `Task assigned to ${worker?.name ?? "worker"}`,
-        detail: `${assignForm.title.trim()} is now live in the dispatch queue.`,
-        tone: "positive",
-      }
-      setNotifications((previous) => [newNotification, ...previous].slice(0, 6))
-      setAssignForm(initialAssignForm)
-      setAssignMessage("Task assigned successfully and worker status updated.")
-      setAssignSuccessText(`Task assigned to ${worker?.name ?? "worker"} successfully.`)
-      setIsAssignSuccessOpen(true)
-    } catch (error) {
-      setAssignMessage(error instanceof Error ? error.message : "Unable to assign task")
-    } finally {
-      setIsSubmittingTask(false)
-    }
-  }
+  const stats = useMemo(() => ({
+    total: complaints.length,
+    pending: complaints.filter((c) => c.status === "Pending").length,
+    assigned: complaints.filter((c) => c.status === "Assigned").length,
+    resolved: complaints.filter((c) => c.status === "Resolved").length,
+  }), [complaints])
 
   if (!isHydrated) {
     return (
-      <main className="min-h-screen bg-slate-950 px-6 py-10 text-slate-50">
-        <div className="mx-auto max-w-7xl rounded-3xl border border-white/10 bg-white/5 p-8 text-sm text-slate-300">
-          Preparing admin dashboard...
+      <main className="flex min-h-screen items-center justify-center bg-[#030a06] text-white">
+        <div className="flex items-center gap-3 text-slate-400">
+          <div className="h-5 w-5 animate-spin rounded-full border-2 border-violet-500 border-t-transparent" />
+          Loading admin dashboard…
         </div>
       </main>
     )
   }
 
+  const tabs = [
+    { key: "complaints", label: "Complaints", icon: "📋", count: complaints.length },
+    { key: "workers", label: "Workers", icon: "👷", count: workers.length },
+    { key: "stats", label: "Analytics", icon: "📊", count: null },
+  ] as const
+
   return (
-    <main className="min-h-screen bg-[radial-gradient(circle_at_top,_rgba(34,211,238,0.16),_transparent_30%),linear-gradient(135deg,#020617_0%,#111827_100%)] px-4 py-6 text-slate-50 sm:px-6 lg:px-8">
-      <Dialog open={isAssignmentDialogOpen} onOpenChange={(open) => {
-        setIsAssignmentDialogOpen(open)
-        if (!open) {
-          setComplaintForAssignment(null)
-        }
-      }}>
-        <DialogContent className="border border-cyan-400/20 bg-slate-900 text-slate-50 sm:max-w-md">
-          <DialogHeader>
-            <DialogTitle className="text-xl text-white">Assign complaint to a worker</DialogTitle>
-            <DialogDescription className="text-sm text-slate-400">
-              Choose a worker for {complaintForAssignment?.id ?? "this complaint"}. The task will appear in the worker portal right away.
-            </DialogDescription>
-          </DialogHeader>
-          <div className="space-y-2">
-            {workers.map((worker) => (
-              <button
-                key={worker.id}
-                type="button"
-                onClick={() => complaintForAssignment && handleComplaintAssignment(complaintForAssignment, worker)}
-                className="flex w-full items-center justify-between rounded-2xl border border-white/10 bg-white/5 px-4 py-3 text-left text-sm text-slate-200 transition hover:border-cyan-400/40 hover:bg-cyan-500/10"
+    <main className="min-h-screen bg-[#030a06] text-white">
+      {/* ── Header ── */}
+      <header className="sticky top-0 z-40 border-b border-white/5 bg-[#030a06]/90 backdrop-blur-xl">
+        <div className="mx-auto flex h-16 max-w-7xl items-center justify-between px-4 sm:px-6">
+          <div className="flex items-center gap-2.5">
+            <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-gradient-to-br from-violet-400 to-purple-600">
+              <span className="text-sm font-bold">A</span>
+            </div>
+            <div>
+              <div className="text-sm font-semibold">Krish Admin</div>
+              <div className="text-xs text-slate-500">{user?.name ?? "Administrator"}</div>
+            </div>
+          </div>
+          <div className="flex items-center gap-3">
+            <button
+              onClick={fetchAll}
+              disabled={isFetching}
+              className="flex items-center gap-1.5 rounded-xl border border-white/10 bg-white/5 px-3 py-1.5 text-xs font-medium text-slate-300 hover:bg-white/10 disabled:opacity-50"
+            >
+              {isFetching ? "Refreshing…" : "↻ Refresh"}
+            </button>
+            <button
+              onClick={handleLogout}
+              className="rounded-xl border border-white/10 bg-white/5 px-3 py-1.5 text-xs font-medium text-slate-300 hover:bg-white/10"
+            >
+              Logout
+            </button>
+          </div>
+        </div>
+      </header>
+
+      {/* Notice */}
+      {notice && (
+        <div className={`border-b px-6 py-3 text-sm text-center ${
+          notice.type === "success"
+            ? "border-emerald-500/20 bg-emerald-500/10 text-emerald-300"
+            : "border-rose-500/20 bg-rose-500/10 text-rose-300"
+        }`}>
+          {notice.text}
+          <button onClick={() => setNotice(null)} className="ml-4 text-xs opacity-60 hover:opacity-100">✕</button>
+        </div>
+      )}
+
+      <div className="mx-auto max-w-7xl px-4 py-8 sm:px-6">
+        {/* Stats row */}
+        <div className="mb-8 grid grid-cols-2 gap-4 sm:grid-cols-4">
+          {[
+            { label: "Total", val: stats.total, color: "text-white" },
+            { label: "Pending", val: stats.pending, color: "text-amber-400" },
+            { label: "Assigned", val: stats.assigned, color: "text-blue-400" },
+            { label: "Resolved", val: stats.resolved, color: "text-emerald-400" },
+          ].map((s) => (
+            <div key={s.label} className="rounded-2xl border border-white/10 bg-white/5 p-5">
+              <p className="text-sm text-slate-400">{s.label} complaints</p>
+              <p className={`mt-2 text-4xl font-bold ${s.color}`}>{s.val}</p>
+            </div>
+          ))}
+        </div>
+
+        {/* Tabs */}
+        <div className="mb-6 flex gap-1 overflow-x-auto rounded-2xl border border-white/5 bg-white/3 p-1">
+          {tabs.map((t) => (
+            <button
+              key={t.key}
+              onClick={() => setActiveTab(t.key)}
+              className={`flex shrink-0 items-center gap-1.5 rounded-xl px-4 py-2 text-sm font-medium transition-all ${
+                activeTab === t.key
+                  ? "bg-violet-500 text-white shadow-lg shadow-violet-500/25"
+                  : "text-slate-400 hover:text-white"
+              }`}
+            >
+              {t.icon} {t.label}
+              {t.count !== null && (
+                <span className="ml-1 rounded-full bg-white/10 px-1.5 py-0.5 text-xs">{t.count}</span>
+              )}
+            </button>
+          ))}
+        </div>
+
+        {/* ═══════════════════ COMPLAINTS ═══ */}
+        {activeTab === "complaints" && (
+          <div className="space-y-4">
+            {/* Filter bar */}
+            <div className="flex flex-col gap-3 sm:flex-row">
+              <input
+                type="text"
+                placeholder="Search complaints…"
+                value={search}
+                onChange={(e) => setSearch(e.target.value)}
+                className="flex-1 rounded-xl border border-white/10 bg-white/5 px-4 py-2.5 text-sm text-white placeholder-slate-500 outline-none focus:border-violet-500/60 focus:ring-2 focus:ring-violet-500/20"
+              />
+              <select
+                value={filterStatus}
+                onChange={(e) => setFilterStatus(e.target.value)}
+                className="rounded-xl border border-white/10 bg-[#0d0a1f] px-4 py-2.5 text-sm text-white outline-none focus:border-violet-500/60"
               >
-                <span>
-                  <span className="block font-semibold text-white">{worker.name}</span>
-                  <span className="text-xs text-slate-400">{worker.id}</span>
-                </span>
-                <span className="rounded-full border border-cyan-400/20 bg-cyan-500/10 px-2 py-1 text-xs text-cyan-200">
-                  {worker.status}
-                </span>
-              </button>
-            ))}
-          </div>
-          <DialogFooter>
-            <Button variant="outline" onClick={() => setIsAssignmentDialogOpen(false)}>
-              Cancel
-            </Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
-
-      <Dialog open={isAssignSuccessOpen} onOpenChange={setIsAssignSuccessOpen}>
-        <DialogContent className="border border-cyan-400/20 bg-slate-900 text-slate-50 sm:max-w-md">
-          <DialogHeader>
-            <DialogTitle className="text-xl text-white">Assignment complete</DialogTitle>
-            <DialogDescription className="text-sm text-slate-400">
-              {assignSuccessText}
-            </DialogDescription>
-          </DialogHeader>
-          <DialogFooter>
-            <Button onClick={() => setIsAssignSuccessOpen(false)}>Close</Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
-
-      <div className="mx-auto flex max-w-7xl flex-col gap-6">
-        <header className="rounded-[2rem] border border-white/10 bg-slate-900/80 p-5 shadow-2xl backdrop-blur xl:p-7">
-          <div className="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
-            <div className="flex items-start gap-4">
-              <div className="rounded-2xl border border-cyan-400/20 bg-cyan-500/10 p-3 text-cyan-300">
-                <Building2 className="h-6 w-6" />
-              </div>
-              <div>
-                <div className="flex items-center gap-2 text-sm uppercase tracking-[0.3em] text-cyan-300">
-                  <Sparkles className="h-4 w-4" />
-                  Waste to Wealth Revolution
-                </div>
-                <h1 className="mt-2 text-2xl font-semibold sm:text-3xl">Admin Dashboard</h1>
-                <p className="mt-1 text-sm text-slate-400">
-                  Community-led waste management and civic action in one view.
-                </p>
-              </div>
+                <option value="all">All statuses</option>
+                <option value="Pending">Pending</option>
+                <option value="Assigned">Assigned</option>
+                <option value="In Progress">In Progress</option>
+                <option value="Resolved">Resolved</option>
+              </select>
             </div>
 
-            <div className="flex flex-wrap items-center gap-3">
-              <Button variant="outline" onClick={handleResetDemo} className="border-cyan-400/30 bg-cyan-500/10 text-cyan-100">
-                <RefreshCw className="mr-2 h-4 w-4" />
-                Reset Demo
-              </Button>
-              <Button variant="outline" onClick={handleLogout} className="border-white/10 bg-white/5 text-slate-100">
-                <LogOut className="mr-2 h-4 w-4" />
-                Logout
-              </Button>
-              <div className="rounded-2xl border border-white/10 bg-white/5 px-4 py-3 text-sm text-slate-300">
-                <div className="font-medium text-white">{user?.name ?? "Admin"}</div>
-                <div className="text-xs uppercase tracking-[0.3em] text-slate-400">{adminId}</div>
+            {filteredComplaints.length === 0 ? (
+              <div className="flex flex-col items-center justify-center gap-3 rounded-3xl border border-white/5 py-20 text-center">
+                <div className="text-5xl">📭</div>
+                <p className="text-slate-400">{search || filterStatus !== "all" ? "No complaints match your filter." : "No complaints yet."}</p>
               </div>
-            </div>
-          </div>
-        </header>
-
-        {assignMessage ? (
-          <div className="rounded-2xl border border-cyan-400/20 bg-cyan-500/10 px-4 py-3 text-sm text-cyan-100">
-            {assignMessage}
-          </div>
-        ) : null}
-
-        <section className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
-          <Card className="border-white/10 bg-slate-900/70">
-            <CardHeader className="pb-2">
-              <CardTitle className="text-sm font-medium text-slate-400">Total Bins</CardTitle>
-            </CardHeader>
-            <CardContent>
-              <div className="text-3xl font-semibold text-white">{totalBins}</div>
-              <p className="mt-2 text-sm text-slate-400">Across all monitored zones</p>
-            </CardContent>
-          </Card>
-          <Card className="border-white/10 bg-slate-900/70">
-            <CardHeader className="pb-2">
-              <CardTitle className="text-sm font-medium text-slate-400">Open Complaints</CardTitle>
-            </CardHeader>
-            <CardContent>
-              <div className="text-3xl font-semibold text-white">{openComplaints}</div>
-              <p className="mt-2 text-sm text-slate-400">Citizen issues awaiting action</p>
-            </CardContent>
-          </Card>
-          <Card className="border-white/10 bg-slate-900/70">
-            <CardHeader className="pb-2">
-              <CardTitle className="text-sm font-medium text-slate-400">Active Workers</CardTitle>
-            </CardHeader>
-            <CardContent>
-              <div className="text-3xl font-semibold text-white">{activeWorkers}</div>
-              <p className="mt-2 text-sm text-slate-400">Ready for task allocation</p>
-            </CardContent>
-          </Card>
-          <Card className="border-white/10 bg-slate-900/70">
-            <CardHeader className="pb-2">
-              <CardTitle className="text-sm font-medium text-slate-400">Critical Bins</CardTitle>
-            </CardHeader>
-            <CardContent>
-              <div className="flex items-center gap-3">
-                <div className="text-3xl font-semibold text-white">{criticalBins}</div>
-                <Badge className="border-rose-400/30 bg-rose-500/10 text-rose-200">{criticalBins} bins critical</Badge>
-              </div>
-            </CardContent>
-          </Card>
-        </section>
-
-        <section className="grid gap-6 xl:grid-cols-[1.25fr_0.75fr]">
-          <div className="space-y-6">
-            <Card className="border-white/10 bg-slate-900/70">
-              <CardHeader className="flex flex-row items-center justify-between gap-3">
-                <div>
-                  <CardTitle className="text-xl">Live Bin Map</CardTitle>
-                  <CardDescription className="text-slate-400">
-                    Toggle markers to inspect fill levels and assigned crews.
-                  </CardDescription>
-                </div>
-                <Button variant="outline" size="sm" className="border-white/10 bg-white/5 text-slate-100">
-                  <RefreshCw className="mr-2 h-4 w-4" />
-                  Refresh
-                </Button>
-              </CardHeader>
-              <CardContent className="space-y-4">
-                <div className="relative h-72 overflow-hidden rounded-3xl border border-white/10 bg-[radial-gradient(circle_at_top,_rgba(34,211,238,0.25),_transparent_35%),linear-gradient(135deg,#0f172a_0%,#111827_100%)]">
-                  <div className="absolute inset-0 bg-[linear-gradient(rgba(255,255,255,0.04)_1px,transparent_1px),linear-gradient(90deg,rgba(255,255,255,0.04)_1px,transparent_1px)] bg-[size:32px_32px]" />
-                  {bins.map((bin) => (
-                    <button
-                      key={bin.id}
-                      type="button"
-                      onClick={() => setSelectedBinId(bin.id)}
-                      className={cn(
-                        "absolute flex h-8 w-8 -translate-x-1/2 -translate-y-1/2 items-center justify-center rounded-full border-2 text-[11px] font-semibold text-white shadow-lg transition",
-                        selectedBinId === bin.id ? "scale-110 border-white" : "border-transparent",
-                        getBinMarkerColor(bin.status),
-                      )}
-                      style={{ left: bin.position, top: "55%" }}
-                    >
-                      {bin.id.replace("BIN", "")}
-                    </button>
-                  ))}
-                </div>
-
-                {selectedBin ? (
-                  <div className="rounded-2xl border border-white/10 bg-slate-950/70 p-4">
-                    <div className="flex items-center justify-between gap-3">
-                      <div>
-                        <p className="text-sm font-semibold text-white">{selectedBin.id}</p>
-                        <p className="text-sm text-slate-400">{selectedBin.location}</p>
-                      </div>
-                      <Badge className={cn("border", getStatusStyles(selectedBin.status))}>{selectedBin.status}</Badge>
-                    </div>
-                    <div className="mt-4 grid gap-4 sm:grid-cols-3">
-                      <div>
-                        <p className="text-xs uppercase tracking-[0.3em] text-slate-500">Waste Type</p>
-                        <p className="mt-1 text-sm text-slate-200">{selectedBin.wasteType}</p>
-                      </div>
-                      <div>
-                        <p className="text-xs uppercase tracking-[0.3em] text-slate-500">Fill Percentage</p>
-                        <p className="mt-1 text-sm text-slate-200">{selectedBin.fillLevel}%</p>
-                      </div>
-                      <div>
-                        <p className="text-xs uppercase tracking-[0.3em] text-slate-500">Assigned Worker</p>
-                        <p className="mt-1 text-sm text-slate-200">{selectedBin.assignedWorker ?? "Unassigned"}</p>
-                      </div>
-                    </div>
-                  </div>
-                ) : null}
-              </CardContent>
-            </Card>
-
-            <Card className="border-white/10 bg-slate-900/70">
-              <CardHeader>
-                <CardTitle className="text-xl">Bin Status Panel</CardTitle>
-                <CardDescription className="text-slate-400">
-                  Review fill levels, waste type, and maintenance status.
-                </CardDescription>
-              </CardHeader>
-              <CardContent className="space-y-3">
-                {filteredBins.length === 0 ? (
-                  <div className="rounded-2xl border border-dashed border-white/10 p-6 text-center text-sm text-slate-400">
-                    No bins match the current search.
-                  </div>
-                ) : (
-                  filteredBins.map((bin) => (
-                    <div key={bin.id} className="rounded-2xl border border-white/10 bg-slate-950/70 p-4">
-                      <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-                        <div>
-                          <div className="flex items-center gap-2">
-                            <p className="font-semibold text-white">{bin.id}</p>
-                            <Badge className={cn("border", getStatusStyles(bin.status))}>{bin.status}</Badge>
-                          </div>
-                          <p className="text-sm text-slate-400">{bin.area} • {bin.location}</p>
-                        </div>
-                        <Badge variant="secondary">{bin.wasteType}</Badge>
-                      </div>
-                      <div className="mt-3 flex items-center justify-between text-sm text-slate-400">
-                        <span>{bin.fillLevel}% Full</span>
-                        <span>Updated {bin.lastUpdated}</span>
-                      </div>
-                      <Progress value={bin.fillLevel} className="mt-2 h-2" />
-                    </div>
-                  ))
-                )}
-              </CardContent>
-            </Card>
-          </div>
-
-          <div className="space-y-6">
-            <Card className="border-white/10 bg-slate-900/70">
-              <CardHeader>
-                <div className="relative">
-                  <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-500" />
-                  <Input
-                    value={search}
-                    onChange={(event) => setSearch(event.target.value)}
-                    placeholder="Search bins, workers, or complaints"
-                    className="pl-9"
-                  />
-                </div>
-                <CardTitle className="mt-3 text-xl">Citizen Complaints</CardTitle>
-                <CardDescription className="text-slate-400">
-                  Track open issues and follow-up state.
-                </CardDescription>
-              </CardHeader>
-              <CardContent className="space-y-3">
-                {filteredComplaints.length === 0 ? (
-                  <div className="rounded-2xl border border-dashed border-white/10 p-6 text-center text-sm text-slate-400">
-                    No complaints yet.
-                  </div>
-                ) : (
-                  filteredComplaints.map((complaint) => (
-                    <div key={complaint.id} className="rounded-2xl border border-white/10 bg-slate-950/70 p-4">
-                      <div className="flex items-start justify-between gap-3">
-                        <div>
-                          <p className="font-semibold text-white">{complaint.id}</p>
-                          <p className="text-sm text-slate-400">{complaint.citizenName}</p>
-                        </div>
-                        <Badge className={cn("border", getStatusStyles(complaint.status))}>{complaint.status}</Badge>
-                      </div>
-                      <p className="mt-2 text-sm text-slate-300">{complaint.description}</p>
-                      {complaint.imagePath ? (
+            ) : (
+              <div className="space-y-3">
+                {filteredComplaints.map((c) => (
+                  <div key={c.id} className="rounded-2xl border border-white/5 bg-white/3 p-5 transition hover:border-white/10">
+                    <div className="flex items-start gap-4">
+                      {c.imagePath && (
+                        // eslint-disable-next-line @next/next/no-img-element
                         <img
-                          src={`${backendUrl}${complaint.imagePath}`}
-                          alt={complaint.imageName ?? "Complaint evidence"}
-                          className="mt-3 h-32 w-full rounded-xl object-cover"
+                          src={`${backendUrl}${c.imagePath}`}
+                          alt="complaint"
+                          className="h-20 w-20 shrink-0 rounded-xl object-cover"
                         />
-                      ) : null}
-                      <div className="mt-3 flex items-center justify-between text-xs uppercase tracking-[0.3em] text-slate-500">
-                        <span>{complaint.location}</span>
-                        <span>{complaint.createdAt}</span>
-                      </div>
-                      <div className="mt-3 flex flex-wrap items-center gap-2">
-                        <Button
-                          size="sm"
-                          variant="outline"
-                          className="border-cyan-400/20 bg-cyan-500/10 text-cyan-100"
-                          onClick={() => {
-                            setComplaintForAssignment(complaint)
-                            setIsAssignmentDialogOpen(true)
-                          }}
-                        >
-                          Assign complaint to worker
-                        </Button>
-                      </div>
-                    </div>
-                  ))
-                )}
-              </CardContent>
-            </Card>
-
-            <Card className="border-white/10 bg-slate-900/70">
-              <CardHeader>
-                <CardTitle className="text-xl">Assign Task</CardTitle>
-                <CardDescription className="text-slate-400">
-                  Create dispatch work for the active crews.
-                </CardDescription>
-              </CardHeader>
-              <CardContent>
-                <form className="space-y-3" onSubmit={handleAssignTask}>
-                  <div>
-                    <label className="mb-1 block text-sm text-slate-300" htmlFor="task-title">
-                      Task title
-                    </label>
-                    <Input
-                      id="task-title"
-                      value={assignForm.title}
-                      onChange={(event) => setAssignForm((prev) => ({ ...prev, title: event.target.value }))}
-                      placeholder="Empty BIN003"
-                    />
-                  </div>
-                  <div>
-                    <label className="mb-1 block text-sm text-slate-300" htmlFor="task-details">
-                      Details
-                    </label>
-                    <textarea
-                      id="task-details"
-                      value={assignForm.details}
-                      onChange={(event) => setAssignForm((prev) => ({ ...prev, details: event.target.value }))}
-                      className="min-h-24 w-full rounded-md border border-white/10 bg-slate-950 px-3 py-2 text-sm text-slate-100"
-                      placeholder="Hazardous waste bin has reached 100%"
-                    />
-                  </div>
-                  <div>
-                    <label className="mb-1 block text-sm text-slate-300" htmlFor="task-worker">
-                      Assign to
-                    </label>
-                    <select
-                      id="task-worker"
-                      value={assignForm.workerId}
-                      onChange={(event) => setAssignForm((prev) => ({ ...prev, workerId: event.target.value }))}
-                      className="w-full rounded-md border border-white/10 bg-slate-950 px-3 py-2 text-sm text-slate-100"
-                    >
-                      {workers.map((worker) => (
-                        <option key={worker.id} value={worker.id}>
-                          {worker.name} ({worker.id})
-                        </option>
-                      ))}
-                    </select>
-                  </div>
-                  <Button type="submit" className="w-full" disabled={isSubmittingTask}>
-                    {isSubmittingTask ? "Assigning task..." : "Assign task"}
-                  </Button>
-                </form>
-              </CardContent>
-            </Card>
-
-            <Card className="border-white/10 bg-slate-900/70">
-              <CardHeader>
-                <CardTitle className="text-xl">Worker Performance</CardTitle>
-                <CardDescription className="text-slate-400">
-                  Monitor completion rate and live status.
-                </CardDescription>
-              </CardHeader>
-              <CardContent className="space-y-3">
-                {filteredWorkers.length === 0 ? (
-                  <div className="rounded-2xl border border-dashed border-white/10 p-6 text-center text-sm text-slate-400">
-                    No workers match the current search.
-                  </div>
-                ) : (
-                  filteredWorkers.map((worker) => (
-                    <div key={worker.id} className="rounded-2xl border border-white/10 bg-slate-950/70 p-4">
-                      <div className="flex items-center justify-between gap-3">
-                        <div>
-                          <p className="font-semibold text-white">{worker.name}</p>
-                          <p className="text-sm text-slate-400">{worker.id}</p>
+                      )}
+                      <div className="min-w-0 flex-1">
+                        <div className="flex flex-wrap items-center gap-2">
+                          <span className={`rounded-full border px-2.5 py-0.5 text-xs font-medium ${STATUS_STYLES[c.status] ?? ""}`}>
+                            {c.status}
+                          </span>
+                          <span className="rounded-full bg-white/5 px-2.5 py-0.5 text-xs text-slate-400">{c.complaintType}</span>
                         </div>
-                        <Badge className={cn("border", getStatusStyles(worker.status))}>{worker.status}</Badge>
+                        <p className="mt-2 font-medium">{c.description}</p>
+                        <div className="mt-1 flex flex-wrap gap-x-4 gap-y-0.5 text-xs text-slate-400">
+                          <span>📍 {c.location}</span>
+                          <span>👤 {c.citizenName}</span>
+                          <span>🗓️ {new Date(c.createdAt).toLocaleDateString("en-IN", { dateStyle: "medium" })}</span>
+                        </div>
                       </div>
-                      <div className="mt-3 flex items-center justify-between text-sm text-slate-400">
-                        <span>Completed {worker.completedTasks} tasks</span>
-                        <span>{Math.round((worker.completedTasks / worker.target) * 100)}%</span>
-                      </div>
-                      <Progress value={(worker.completedTasks / worker.target) * 100} className="mt-2 h-2" />
                     </div>
-                  ))
-                )}
-              </CardContent>
-            </Card>
-
-            <Card className="border-white/10 bg-slate-900/70">
-              <CardHeader>
-                <CardTitle className="text-xl">Notifications</CardTitle>
-                <CardDescription className="text-slate-400">
-                  Alerts that keep the admin console actionable.
-                </CardDescription>
-              </CardHeader>
-              <CardContent className="space-y-3">
-                {notifications.map((notification) => (
-                  <div key={notification.id} className="rounded-2xl border border-white/10 bg-slate-950/70 p-4">
-                    <div className="flex items-start gap-3">
-                      <div className="rounded-xl border border-cyan-400/20 bg-cyan-500/10 p-2 text-cyan-300">
-                        <Bell className="h-4 w-4" />
-                      </div>
-                      <div>
-                        <p className="font-semibold text-white">{notification.title}</p>
-                        <p className="mt-1 text-sm text-slate-400">{notification.detail}</p>
-                      </div>
+                    <div className="mt-4 flex flex-wrap gap-2">
+                      <button
+                        onClick={() => { setUpdatingComplaint(c); setNewStatus(c.status) }}
+                        className="rounded-xl border border-white/10 bg-white/5 px-4 py-2 text-xs font-medium text-slate-300 hover:bg-white/10"
+                      >
+                        Update status
+                      </button>
+                      {c.status === "Pending" && (
+                        <button
+                          onClick={() => setAssigningComplaint(c)}
+                          className="rounded-xl bg-gradient-to-r from-violet-500 to-purple-500 px-4 py-2 text-xs font-semibold text-white hover:brightness-110"
+                        >
+                          Assign worker →
+                        </button>
+                      )}
                     </div>
                   </div>
                 ))}
-              </CardContent>
-            </Card>
+              </div>
+            )}
           </div>
-        </section>
+        )}
+
+        {/* ═══════════════════ WORKERS ═══ */}
+        {activeTab === "workers" && (
+          <div className="space-y-4">
+            {workers.length === 0 ? (
+              <div className="flex flex-col items-center justify-center gap-3 rounded-3xl border border-white/5 py-20 text-center">
+                <div className="text-5xl">👷</div>
+                <p className="text-slate-400">No workers registered yet.</p>
+              </div>
+            ) : (
+              <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
+                {workers.map((w) => (
+                  <div key={w.id} className="rounded-2xl border border-white/10 bg-white/3 p-5">
+                    <div className="flex items-center gap-3">
+                      <div className="flex h-10 w-10 items-center justify-center rounded-full bg-violet-500/20 text-lg font-bold text-violet-300">
+                        {w.name.charAt(0).toUpperCase()}
+                      </div>
+                      <div>
+                        <p className="font-semibold">{w.name}</p>
+                        <p className="text-xs text-slate-400">{w.email}</p>
+                      </div>
+                    </div>
+                    <div className="mt-3 flex items-center gap-2">
+                      <span className="h-2 w-2 rounded-full bg-emerald-400" />
+                      <span className="text-xs text-emerald-300">{w.status}</span>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+        )}
+
+        {/* ═══════════════════ STATS ═══ */}
+        {activeTab === "stats" && (
+          <div className="grid gap-6 md:grid-cols-2">
+            {/* Status breakdown */}
+            <div className="rounded-3xl border border-white/10 bg-white/3 p-8">
+              <h3 className="mb-6 font-semibold">Complaint breakdown</h3>
+              <div className="space-y-4">
+                {[
+                  { label: "Pending", count: stats.pending, color: "bg-amber-500", total: stats.total },
+                  { label: "Assigned", count: stats.assigned, color: "bg-blue-500", total: stats.total },
+                  { label: "In Progress", count: complaints.filter((c) => c.status === "In Progress").length, color: "bg-violet-500", total: stats.total },
+                  { label: "Resolved", count: stats.resolved, color: "bg-emerald-500", total: stats.total },
+                ].map((s) => (
+                  <div key={s.label}>
+                    <div className="mb-1.5 flex items-center justify-between text-sm">
+                      <span className="text-slate-300">{s.label}</span>
+                      <span className="font-semibold">{s.count}</span>
+                    </div>
+                    <div className="h-2 w-full rounded-full bg-white/5">
+                      <div
+                        className={`h-2 rounded-full ${s.color} transition-all duration-700`}
+                        style={{ width: s.total ? `${(s.count / s.total) * 100}%` : "0%" }}
+                      />
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </div>
+
+            {/* Quick numbers */}
+            <div className="grid grid-cols-2 gap-4 content-start">
+              {[
+                { label: "Resolution rate", val: stats.total ? `${Math.round((stats.resolved / stats.total) * 100)}%` : "—", color: "text-emerald-400" },
+                { label: "Workers active", val: workers.length, color: "text-blue-400" },
+                { label: "Pending action", val: stats.pending, color: "text-amber-400" },
+                { label: "Total complaints", val: stats.total, color: "text-white" },
+              ].map((s) => (
+                <div key={s.label} className="rounded-2xl border border-white/10 bg-white/5 p-5">
+                  <p className="text-xs text-slate-400">{s.label}</p>
+                  <p className={`mt-2 text-3xl font-bold ${s.color}`}>{s.val}</p>
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
       </div>
+
+      {/* ══ Update Status Modal ══ */}
+      {updatingComplaint && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm p-4">
+          <div className="w-full max-w-sm rounded-3xl border border-white/10 bg-[#0d0a1f] p-8 shadow-2xl">
+            <h3 className="mb-1 text-lg font-bold">Update status</h3>
+            <p className="mb-5 text-sm text-slate-400 line-clamp-2">{updatingComplaint.description}</p>
+            <select
+              value={newStatus}
+              onChange={(e) => setNewStatus(e.target.value)}
+              className="w-full rounded-xl border border-white/10 bg-[#170d2e] px-4 py-2.5 text-sm text-white outline-none focus:border-violet-500/60"
+            >
+              <option value="Pending">Pending</option>
+              <option value="Assigned">Assigned</option>
+              <option value="In Progress">In Progress</option>
+              <option value="Resolved">Resolved</option>
+            </select>
+            <div className="mt-5 flex gap-3">
+              <button
+                onClick={() => setUpdatingComplaint(null)}
+                className="flex-1 rounded-xl border border-white/10 bg-white/5 py-2.5 text-sm font-medium hover:bg-white/10"
+              >
+                Cancel
+              </button>
+              <button
+                onClick={handleUpdateStatus}
+                disabled={isUpdating}
+                className="flex-1 rounded-xl bg-gradient-to-r from-violet-500 to-purple-500 py-2.5 text-sm font-semibold text-white hover:brightness-110 disabled:opacity-50"
+              >
+                {isUpdating ? "Saving…" : "Save"}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ══ Assign Worker Modal ══ */}
+      {assigningComplaint && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm p-4">
+          <div className="w-full max-w-sm rounded-3xl border border-white/10 bg-[#0d0a1f] p-8 shadow-2xl">
+            <h3 className="mb-1 text-lg font-bold">Assign to worker</h3>
+            <p className="mb-5 text-sm text-slate-400 line-clamp-2">{assigningComplaint.description}</p>
+            {workers.length === 0 ? (
+              <p className="text-sm text-slate-400">No workers available.</p>
+            ) : (
+              <select
+                value={selectedWorker}
+                onChange={(e) => setSelectedWorker(e.target.value)}
+                className="w-full rounded-xl border border-white/10 bg-[#170d2e] px-4 py-2.5 text-sm text-white outline-none focus:border-violet-500/60"
+              >
+                <option value="">Select a worker…</option>
+                {workers.map((w) => (
+                  <option key={w.id} value={w.id}>{w.name} ({w.email})</option>
+                ))}
+              </select>
+            )}
+            <div className="mt-5 flex gap-3">
+              <button
+                onClick={() => { setAssigningComplaint(null); setSelectedWorker("") }}
+                className="flex-1 rounded-xl border border-white/10 bg-white/5 py-2.5 text-sm font-medium hover:bg-white/10"
+              >
+                Cancel
+              </button>
+              <button
+                onClick={handleAssign}
+                disabled={!selectedWorker || isAssigning}
+                className="flex-1 rounded-xl bg-gradient-to-r from-violet-500 to-purple-500 py-2.5 text-sm font-semibold text-white hover:brightness-110 disabled:opacity-50"
+              >
+                {isAssigning ? "Assigning…" : "Assign →"}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </main>
   )
 }

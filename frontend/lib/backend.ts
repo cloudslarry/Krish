@@ -1,4 +1,5 @@
-export const backendUrl = process.env.BACKEND_URL ?? "http://localhost:4000";
+export const backendUrl =
+  process.env.NEXT_PUBLIC_BACKEND_URL ?? "http://localhost:4000";
 
 export async function getBackendHealth() {
   const response = await fetch(`${backendUrl}/api/health`, {

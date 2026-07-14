@@ -79,6 +79,11 @@ const listTasksForWorker = async ({ workerId }) => {
   return tasks.map(mapTask);
 };
 
+const listAllTasks = async () => {
+  const tasks = await Task.find().sort({ assignedDate: -1 }).lean();
+  return tasks.map(mapTask);
+};
+
 const updateTaskStatus = async ({ taskId, workerId, status }) => {
   if (!taskId) {
     throw ApiError.badRequest("Task ID is required");
@@ -151,4 +156,4 @@ const assignComplaintToWorker = async ({ complaintId, workerId, adminUserId }) =
   return { task: mapTask(task), complaint };
 };
 
-export { listWorkers, createTask, listTasksForWorker, updateTaskStatus, assignComplaintToWorker };
+export { listWorkers, createTask, listTasksForWorker, listAllTasks, updateTaskStatus, assignComplaintToWorker };

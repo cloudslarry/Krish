@@ -16,17 +16,58 @@ import {
 const hashToken = (token) =>
   crypto.createHash("sha256").update(token).digest("hex");
 
-const register = async ({ name, email, password, role }) => {
-  const existing = await User.findOne({ email });
-  if (existing) throw ApiError.conflict("Email already registered");
+const rolePrefixes = {
+  admin: "ADM",
+  worker: "WKR",
+  citizen: "CIT",
+};
+
+const emailPattern = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+
+const normalizeRole = (role = "citizen") => {
+  const normalized = String(role).trim().toLowerCase();
+  return ["admin", "worker", "citizen"].includes(normalized) ? normalized : "citizen";
+};
+
+const normalizeAccountId = (accountId) => String(accountId ?? "").trim().toUpperCase();
+
+const nextAccountId = async (role) => {
+  const prefix = rolePrefixes[normalizeRole(role)];
+  const existing = await User.find({ accountId: { $regex: new RegExp(`^${prefix}\\d+$`) } })
+    .select("accountId")
+    .lean();
+
+  const nextSuffix = existing.reduce((max, item) => {
+    const currentValue = Number(String(item.accountId ?? "").replace(prefix, ""));
+    return Number.isFinite(currentValue) && currentValue > max ? currentValue : max;
+  }, 0);
+
+  return `${prefix}${String(nextSuffix + 1).padStart(3, "0")}`;
+};
+
+const register = async ({ name, email, password, role, accountId, contact }) => {
+  const normalizedRole = normalizeRole(role);
+  const normalizedEmail = String(email ?? "").trim().toLowerCase();
+  const normalizedContact = String(contact ?? "").trim();
+  const normalizedAccountId = normalizeAccountId(accountId) || (await nextAccountId(normalizedRole));
+  const contactLooksLikeEmail = normalizedContact ? emailPattern.test(normalizedContact) : false;
+  const resolvedEmail = normalizedEmail || (contactLooksLikeEmail ? normalizedContact.toLowerCase() : `${normalizedAccountId.toLowerCase()}@w2w.local`);
+  const resolvedPhone = !contactLooksLikeEmail && normalizedContact ? normalizedContact : "";
+
+  const existing = await User.findOne({
+    $or: [{ email: resolvedEmail }, { accountId: normalizedAccountId }],
+  });
+  if (existing) throw ApiError.conflict("Email or account ID already registered");
 
   const { rawToken, hashedToken } = generateResetToken();
 
   const user = await User.create({
     name,
-    email,
+    email: resolvedEmail,
+    accountId: normalizedAccountId,
+    phone: resolvedPhone,
     password,
-    role,
+    role: normalizedRole,
     verificationToken: hashedToken,
   });
 
@@ -41,11 +82,28 @@ const register = async ({ name, email, password, role }) => {
   delete userObj.password;
   delete userObj.verificationToken;
 
-  return userObj;
+  return {
+    ...userObj,
+    accountId: user.accountId,
+  };
 };
 
-const login = async ({ email, password }) => {
-  const user = await User.findOne({ email }).select("+password");
+const login = async ({ email, identifier, accountId, password }) => {
+  const lookupValue = String(identifier ?? accountId ?? email ?? "").trim();
+  if (!lookupValue) {
+    throw ApiError.badRequest("Email or account ID is required");
+  }
+
+  const query = emailPattern.test(lookupValue)
+    ? { email: lookupValue.toLowerCase() }
+    : {
+        $or: [
+          { email: lookupValue.toLowerCase() },
+          { accountId: normalizeAccountId(lookupValue) },
+        ],
+      };
+
+  const user = await User.findOne(query).select("+password");
   if (!user) throw ApiError.unauthorized("Invalid email or password");
 
   const isMatch = await user.comparePassword(password);
@@ -66,7 +124,7 @@ const login = async ({ email, password }) => {
   delete userObj.password;
   delete userObj.refreshToken;
 
-  return { user: userObj, accessToken, refreshToken };
+  return { user: { ...userObj, accountId: user.accountId }, accessToken, refreshToken };
 };
 
 // Issues a new access token using a valid refresh token
@@ -169,4 +227,6 @@ export {
   forgotPassword,
   resetPassword,
   getMe,
+  normalizeRole,
+  nextAccountId,
 };
