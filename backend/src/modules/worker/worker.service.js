@@ -72,7 +72,7 @@ const listTasksForWorker = async ({ workerId }) => {
   }
 
   const workerQueryId = mongoose.Types.ObjectId.isValid(workerId)
-    ? mongoose.Types.ObjectId(workerId)
+    ? new mongoose.Types.ObjectId(workerId)
     : workerId;
 
   const tasks = await Task.find({ workerId: workerQueryId }).sort({ assignedDate: -1 }).lean();
@@ -129,8 +129,8 @@ const assignComplaintToWorker = async ({ complaintId, workerId, adminUserId }) =
   }
 
   const task = await Task.create({
-    workerId: mongoose.Types.ObjectId(workerId),
-    complaintId: mongoose.Types.ObjectId(complaintId),
+    workerId: new mongoose.Types.ObjectId(workerId),
+    complaintId: new mongoose.Types.ObjectId(complaintId),
     title: `Complaint: ${complaint.complaintType || "General"}`,
     description: complaint.description,
     binId: complaint.location || "",
@@ -138,7 +138,7 @@ const assignComplaintToWorker = async ({ complaintId, workerId, adminUserId }) =
     wasteType: complaint.complaintType || "General",
     priority: complaint.status === "Resolved" ? "Low" : "High",
     status: "Pending",
-    assignedBy: mongoose.Types.ObjectId(adminUserId),
+    assignedBy: new mongoose.Types.ObjectId(adminUserId),
     source: "complaint",
   });
 
@@ -147,7 +147,7 @@ const assignComplaintToWorker = async ({ complaintId, workerId, adminUserId }) =
 
   await TaskAuditLog.create({
     taskId: task._id,
-    actorId: mongoose.Types.ObjectId(adminUserId),
+    actorId: new mongoose.Types.ObjectId(adminUserId),
     actorRole: "admin",
     action: "complaint_assigned",
     details: `Assigned complaint ${complaintId} to ${worker.name}`,
