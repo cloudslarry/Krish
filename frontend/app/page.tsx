@@ -12,7 +12,7 @@ export default function Home() {
 
   useEffect(() => {
     setMounted(true)
-    fetch(`${process.env.NEXT_PUBLIC_BACKEND_URL ?? "http://localhost:4000"}/api/health`, {
+    fetch(`${process.env.NEXT_PUBLIC_BACKEND_URL ?? "https://krish-ss9t.onrender.com"}/api/health`, {
       cache: "no-store",
     })
       .then((r) => (r.ok ? r.json() : Promise.reject()))

@@ -1,5 +1,5 @@
 export const backendUrl =
-  process.env.NEXT_PUBLIC_BACKEND_URL ?? "http://localhost:4000";
+  process.env.NEXT_PUBLIC_BACKEND_URL ?? "https://krish-ss9t.onrender.com";
 
 export async function getBackendHealth() {
   const response = await fetch(`${backendUrl}/api/health`, {
