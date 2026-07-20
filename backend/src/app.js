@@ -15,15 +15,17 @@ import workerRoute from "./modules/worker/worker.routes.js";
 
 const app = express();
 
-const frontendOrigin = process.env.FRONTEND_URL ?? "http://localhost:3000";
+const frontendOrigins = (process.env.FRONTEND_URL ?? "http://localhost:3000,https://w2w1.vercel.app").split(",").map((origin) => origin.trim()).filter(Boolean);
+const allowedOrigins = new Set(frontendOrigins);
+const defaultOrigin = frontendOrigins[0] || "http://localhost:3000";
 
 app.use((req, res, next) => {
   const requestOrigin = req.headers.origin;
 
-  if (requestOrigin && requestOrigin === frontendOrigin) {
+  if (requestOrigin && allowedOrigins.has(requestOrigin)) {
     res.header("Access-Control-Allow-Origin", requestOrigin);
   } else {
-    res.header("Access-Control-Allow-Origin", frontendOrigin);
+    res.header("Access-Control-Allow-Origin", defaultOrigin);
   }
 
   res.header("Vary", "Origin");
